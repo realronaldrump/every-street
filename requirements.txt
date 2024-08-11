@@ -1,0 +1,6 @@
+Flask[async]
+aiohttp
+bounciepy
+geopy
+python-dotenv
+GitPython

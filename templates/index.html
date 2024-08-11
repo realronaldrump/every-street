@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Every Street - Tracking Davis in Waco</title>
+  <meta name="description" content="Track Davis as he conquers every street in Waco, Texas">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Every Street</h1>
+      <h2>Tracking Davis as he Conquers Every Street in Waco!</h2>
+    </header>
+
+    <main>
+      <section id="time-filters">
+        <button onclick="filterRoutesBy('today')">Today</button>
+        <button onclick="filterRoutesBy('yesterday')">Yesterday</button>
+        <button onclick="filterRoutesBy('lastWeek')">Last Week</button>
+        <button onclick="filterRoutesBy('lastMonth')">Last Month</button>
+        <button onclick="filterRoutesBy('lastYear')">Last Year</button>
+        <button onclick="filterRoutesBy('allTime')">All Time</button>
+      </section>
+
+      <section id="filter-controls">
+        <div class="filter-group">
+          <label for="filterWaco">
+            <input type="checkbox" id="filterWaco" checked> Filter by Waco
+          </label>
+        </div>
+        <div class="filter-group">
+          <label for="startDate">Start Date:</label>
+          <input type="date" id="startDate" value="2020-01-01">
+        </div>
+        <div class="filter-group">
+          <label for="endDate">End Date:</label>
+          <input type="date" id="endDate">
+        </div>
+        <button onclick="applyDateFilter()">Apply Filter</button>
+        <button id="updateDataBtn">Check for new driving data</button>
+      </section>
+
+      <section id="map" aria-label="Map of Davis's routes"></section>
+
+      <section id="stats">
+        <div class="stat-group">
+          <h2>Live Data</h2>
+          <div class="stat-card">
+            <h3>Last Updated</h3>
+            <p id="lastUpdated">N/A</p>
+          </div>
+          <div class="stat-card">
+            <h3>Speed</h3>
+            <p id="speed">N/A</p>
+          </div>
+          <div class="stat-card">
+            <h3>Location</h3>
+            <p id="location">N/A</p>
+          </div>
+        </div>
+
+        <div class="stat-group">
+          <h2>Trip Summary</h2>
+          <div class="stat-card">
+            <h3>Total Distance</h3>
+            <p id="totalDistance">N/A</p>
+          </div>
+          <div class="stat-card">
+            <h3>Total Time</h3>
+            <p id="totalTime">N/A</p>
+          </div>
+          <div class="stat-card">
+            <h3>Max Speed</h3>
+            <p id="maxSpeed">N/A</p>
+          </div>
+          <div class="stat-card">
+            <h3>Start Time</h3>
+            <p id="startTime">N/A</p>
+          </div>
+          <div class="stat-card">
+            <h3>End Time</h3>
+            <p id="endTime">N/A</p>
+          </div>
+        </div>
+
+        <div class="stat-group">
+          <h2>Historical Data</h2>
+          <div class="stat-card">
+            <h3>Total Historical Distance</h3>
+            <p id="totalHistoricalDistance">N/A</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="/static/js/map.js"></script>
+  <audio autoplay loop controls>
+    <source src="/static/hypesong.mp3" type="audio/mpeg">
+    Your browser does not support the audio element.
+  </audio>
+</body>
+</html>

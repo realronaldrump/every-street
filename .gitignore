@@ -1,0 +1,22 @@
+.venv/
+venv/
+
+Python cache
+pycache/
+*.pyc
+*.pyo
+
+env
+.env
+.DS_Store
+
+.idea/
+*.log
+
+# *.geojson
+static/historical_data.gpx
+
+.vercel
+
+__pycache__
+.DS_Store.DS_Store
