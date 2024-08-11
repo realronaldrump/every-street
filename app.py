@@ -201,7 +201,7 @@ async def load_historical_data():
 
             # --- Historical Trip Data Download ---
             today = datetime.now(tz=timezone.utc)
-            start_date = datetime(2024, 8, 1, tzinfo=timezone.utc)  # Changed to 2020
+            start_date = datetime(2020, 1, 1, tzinfo=timezone.utc)  # Changed to 2020
             end_date = today
 
             all_trips = []
