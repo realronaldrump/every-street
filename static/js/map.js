@@ -11,6 +11,8 @@ let liveMarker;
 let historicalDataLayer;
 let liveRoutePolyline; // Store the live route polyline
 let liveRoutePoints = []; // Store points for the live route
+let playbackAnimation; // Store the animation object
+let playbackPolyline; // Store the polyline used for playback
 
 // DOM elements
 const filterWacoCheckbox = document.getElementById('filterWaco');
@@ -72,12 +74,6 @@ function updateLiveData(data) {
   // Update live route
   liveRoutePoints.push(latLng);
 
-  // Limit the number of points in liveRoutePoints (e.g., keep last 100 points)
-  //const maxLiveRoutePoints = 100; 
-  //if (liveRoutePoints.length > maxLiveRoutePoints) {
-  //  liveRoutePoints.shift(); // Remove the oldest point
-  //}
-
   if (!liveRoutePolyline) {
     liveRoutePolyline = L.polyline(liveRoutePoints, {
       color: '#007bff', // Contrasting color for live route
@@ -94,7 +90,6 @@ function updateLiveData(data) {
 // Filter and display historical data
 async function displayHistoricalData() {
   try {
-    // Add a timestamp to the URL to force a fresh fetch
     const response = await fetch(`https://realronaldrump.github.io/every-street/static/historical_data.geojson?timestamp=${Date.now()}`);
     const data = await response.json();
 
@@ -154,15 +149,73 @@ function isRouteInWaco(feature) {
   });
 }
 
-// Add hover popup with route information
+// Add hover popup with route information and playback button
 function addRoutePopup(feature, layer) {
   const timestamp = feature.properties.timestamp;
   const date = new Date(timestamp * 1000).toLocaleDateString();
   const time = new Date(timestamp * 1000).toLocaleTimeString();
   const distance = calculateTotalDistance([feature]);
 
-  layer.bindPopup(`Date: ${date}<br>Time: ${time}<br>Distance: ${distance.toFixed(2)} miles`);
+  // Create the playback button element
+  const playbackButton = document.createElement('button');
+  playbackButton.textContent = 'Play Route';
+  playbackButton.addEventListener('click', () => {
+    playRoute(feature.geometry.coordinates);
+  });
+
+  // Create a container for the popup content
+  const popupContent = document.createElement('div');
+  popupContent.innerHTML = `Date: ${date}<br>Time: ${time}<br>Distance: ${distance.toFixed(2)} miles`;
+  popupContent.appendChild(playbackButton); // Add the button to the popup
+
+  layer.bindPopup(popupContent);
 }
+
+// Function to play back the route
+function playRoute(coordinates) {
+  console.log("Coordinates:", coordinates); // Log the coordinates
+
+  // If an animation is already running, stop it
+  if (playbackAnimation) {
+    clearInterval(playbackAnimation);
+    if (playbackPolyline) {
+      map.removeLayer(playbackPolyline);
+    }
+  }
+
+  // Initialize playbackPolyline 
+  playbackPolyline = L.polyline([], { // Start with an empty array
+    color: 'yellow', // Highlight color
+    weight: 4
+  }).addTo(map);
+
+  console.log("Initial playbackPolyline:", playbackPolyline.getLatLngs()); // Log the initial polyline coordinates
+
+  let i = 0; // Start from the first point
+  const playbackMarker = L.marker(L.latLng(coordinates[0][1], coordinates[0][0]), {
+    icon: L.divIcon({
+      className: 'blinking-marker',
+      iconSize: [20, 20],
+      html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
+    })
+  }).addTo(map);
+
+  playbackAnimation = setInterval(() => {
+    if (i < coordinates.length) {
+      const latLng = L.latLng(coordinates[i][1], coordinates[i][0]);
+      playbackMarker.setLatLng(latLng);
+      playbackPolyline.addLatLng(latLng);
+      console.log("Added coordinate:", latLng, "Polyline:", playbackPolyline.getLatLngs()); // Log the added coordinate and the polyline
+      i++;
+    } else {
+      clearInterval(playbackAnimation);
+      map.removeLayer(playbackMarker);
+      i = 0; // Reset i to 0 after clearing the interval
+    }
+  }, 100); // Adjust the interval for playback speed
+}
+
+
 
 // Apply date filter
 function applyDateFilter() {
