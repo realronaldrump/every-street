@@ -90,7 +90,7 @@ function updateLiveData(data) {
 // Filter and display historical data
 async function displayHistoricalData() {
   try {
-    const response = await fetch(`https://realronaldrump.github.io/every-street/static/historical_data.geojson?timestamp=${Date.now()}`);
+    const response = await fetch('/static/historical_data.geojson')
     const data = await response.json();
 
     const startDate = new Date(startDateInput.value).getTime() / 1000;
@@ -117,7 +117,7 @@ async function displayHistoricalData() {
       style: {
         color: 'blue',
         weight: 2,
-        opacity: 0.2
+        opacity: 0.25
       },
       filter: feature => !filterWacoCheckbox.checked || isRouteInWaco(feature),
       onEachFeature: addRoutePopup
