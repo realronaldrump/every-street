@@ -30,6 +30,12 @@ const stopBtn = document.getElementById('stopBtn');
 const playbackSpeedInput = document.getElementById('playbackSpeed');
 const speedValueSpan = document.getElementById('speedValue');
 
+// Socket.IO setup for real-time updates
+const socket = io();
+socket.on('live_update', (data) => {
+  updateLiveData(data);
+});
+
 // Load Waco city limits
 async function loadWacoLimits() {
   try {
@@ -190,7 +196,6 @@ function startPlayback(coordinates) {
   currentCoordIndex = 0;
   playbackPolyline = L.polyline([], { color: 'yellow', weight: 4 }).addTo(map);
 
-  // Continue `startPlayback` function
   playbackMarker = L.marker(L.latLng(coordinates[0][1], coordinates[0][0]), {
     icon: L.divIcon({
       className: 'blinking-marker',
@@ -277,6 +282,16 @@ async function updateLiveDataAndMetrics() {
   } catch (error) {
     console.error('Error updating live data and metrics:', error);
   }
+}
+
+// Export routes to GPX
+function exportToGPX() {
+  const startDate = startDateInput.value;
+  const endDate = endDateInput.value;
+  const filterWaco = filterWacoCheckbox.checked ? 'true' : 'false';
+
+  const exportUrl = `/export_gpx?startDate=${startDate}&endDate=${endDate}&filterWaco=${filterWaco}`;
+  window.location.href = exportUrl;
 }
 
 // Initialize

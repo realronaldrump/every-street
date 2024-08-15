@@ -5,3 +5,5 @@ geopy
 python-dotenv
 GitPython
 Shapely
+Flask-SocketIO
+lxml
