@@ -394,7 +394,7 @@ async def get_live_data():
                 live_trip_data["last_updated"] = datetime.now(timezone.utc)
                 live_trip_data["data"].append(bouncie_data)
 
-                socketio.emit('live_update', bouncie_data)  # Emit real-time updates via WebSocket
+                await socketio.emit('live_update', bouncie_data)  # Ensure this is awaited
 
                 return jsonify(bouncie_data)
             return jsonify({"error": "No live data available"})
