@@ -202,3 +202,44 @@
     box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.2);
     color: var(--text-color);
   }
+
+  #playback-controls {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    background-color: var(--secondary-bg);
+    border-radius: 20px;
+    box-shadow: 10px 10px 20px rgba(0, 0, 0, 0.3), 
+                -10px -10px 20px rgba(255, 255, 255, 0.05);
+    margin-bottom: 2rem;
+  }
+  
+  #playback-controls button,
+  #playback-controls input[type="range"] {
+    padding: 0.5rem 1rem;
+    background-color: var(--accent-color);
+    color: var(--text-color);
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  }
+  
+  #playback-controls button:hover,
+  #playback-controls input[type="range"]:hover {
+    background-color: var(--accent-hover);
+    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+  }
+  
+  #playback-controls input[type="range"] {
+    width: 150px;
+  }
+  
+  #speedValue {
+    color: var(--text-color);
+    font-weight: 500;
+  }

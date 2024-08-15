@@ -322,25 +322,29 @@ async def update_historical_data():
 
             # --- Update historical_geojson_features with new data ---
             new_features = create_geojson_features_from_trips(all_trips)
-            historical_geojson_features.extend(new_features)
+            if new_features:
+                historical_geojson_features.extend(new_features)
 
-            # --- Save the updated GeoJSON data to the file ---
-            with open("static/historical_data.geojson", "w") as f:
-                json.dump(
-                    {"type": "FeatureCollection", "features": historical_geojson_features},
-                    f,
-                )
+                # --- Save the updated GeoJSON data to the file ---
+                with open("static/historical_data.geojson", "w") as f:
+                    json.dump(
+                        {"type": "FeatureCollection", "features": historical_geojson_features},
+                        f,
+                    )
 
-            # --- Commit and push changes to GitHub ---
-            repo = Repo(".")  # Assumes the script is run from the repository root
-            repo.git.add(".")  # Stage all changes
-            repo.git.commit('-m', "Updated historical data")
+                # --- Commit and push changes to GitHub ---
+                repo = Repo(".")  # Assumes the script is run from the repository root
+                repo.git.add("static/historical_data.geojson")  # Stage the specific file
 
-            # Use the username and PAT to create the authentication string
-            auth_string = f'{GITHUB_USER}:{GITHUB_PAT}'
-
-            # Push to GitHub using the authentication string
-            repo.git.push('https://' + auth_string + '@github.com/realronaldrump/every-street.git', 'main')
+                # Check if there are any changes to commit
+                if repo.is_dirty(untracked_files=True):
+                    repo.git.commit('-m', "Updated historical data")
+                    # Use the username and PAT to create the authentication string
+                    auth_string = f'{GITHUB_USER}:{GITHUB_PAT}'
+                    # Push to GitHub using the authentication string
+                    repo.git.push('https://' + auth_string + '@github.com/realronaldrump/every-street.git', 'main')
+                else:
+                    print("No changes to commit.")
 
             return jsonify({"message": "Historical data updated successfully!"}), 200
 

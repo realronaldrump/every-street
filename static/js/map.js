@@ -9,16 +9,26 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
 let wacoLimits;
 let liveMarker;
 let historicalDataLayer;
-let liveRoutePolyline; // Store the live route polyline
-let liveRoutePoints = []; // Store points for the live route
-let playbackAnimation; // Store the animation object
-let playbackPolyline; // Store the polyline used for playback
+let liveRoutePolyline;
+let liveRoutePoints = [];
+let playbackAnimation;
+let playbackPolyline;
+let playbackMarker;
+let playbackSpeed = 1;
+let isPlaying = false;
+let currentCoordIndex = 0;
 
 // DOM elements
 const filterWacoCheckbox = document.getElementById('filterWaco');
 const startDateInput = document.getElementById('startDate');
 const endDateInput = document.getElementById('endDate');
-const updateDataBtn = document.getElementById('updateDataBtn'); // New button
+const updateDataBtn = document.getElementById('updateDataBtn');
+
+// Playback controls
+const playPauseBtn = document.getElementById('playPauseBtn');
+const stopBtn = document.getElementById('stopBtn');
+const playbackSpeedInput = document.getElementById('playbackSpeed');
+const speedValueSpan = document.getElementById('speedValue');
 
 // Load Waco city limits
 async function loadWacoLimits() {
@@ -42,7 +52,6 @@ async function loadWacoLimits() {
     if (filterWacoCheckbox.checked) {
       wacoLimits.addTo(map);
     }
-
   } catch (error) {
     console.error('Error loading Waco limits:', error);
   }
@@ -53,13 +62,11 @@ function updateLiveData(data) {
   document.getElementById('lastUpdated').textContent = new Date(data.timestamp * 1000).toLocaleString();
   document.getElementById('speed').textContent = `${data.speed} mph`;
 
-  // Split the address by <br> tags and join with newlines
   const formattedAddress = data.address.split('<br>').join('\n');
-  document.getElementById('location').textContent = formattedAddress; 
+  document.getElementById('location').textContent = formattedAddress;
 
   const latLng = [data.latitude, data.longitude];
 
-  // Update live marker
   if (!liveMarker) {
     liveMarker = L.marker(latLng, {
       icon: L.divIcon({
@@ -72,47 +79,53 @@ function updateLiveData(data) {
     liveMarker.setLatLng(latLng);
   }
 
-  // Update live route
   liveRoutePoints.push(latLng);
 
   if (!liveRoutePolyline) {
     liveRoutePolyline = L.polyline(liveRoutePoints, {
-      color: '#007bff', // Contrasting color for live route
+      color: '#007bff',
       weight: 4
     }).addTo(map);
   } else {
     liveRoutePolyline.setLatLngs(liveRoutePoints);
   }
 
-  // Store in Local Storage
   localStorage.setItem('liveRoutePoints', JSON.stringify(liveRoutePoints));
 }
 
 // Filter and display historical data
 async function displayHistoricalData() {
   try {
-    const startDate = startDateInput.value || "2020-01-01";
-    const endDate = endDateInput.value || new Date().toISOString().split("T")[0];
-    const filterWaco = filterWacoCheckbox.checked;
-
-    const url = `/historical_data?startDate=${startDate}&endDate=${endDate}&filterWaco=${filterWaco}`;
-
-    const response = await fetch(url);
+    const response = await fetch('/static/historical_data.geojson')
     const data = await response.json();
 
-    const totalDistance = calculateTotalDistance(data.features);
+    const startDate = new Date(startDateInput.value).getTime() / 1000;
+    const endDate = endDateInput.value ? new Date(endDateInput.value).getTime() / 1000 : Infinity;
+
+    const filteredFeatures = data.features.filter(feature => {
+      const timestamp = feature.properties.timestamp;
+      return timestamp >= startDate && timestamp <= endDate;
+    });
+
+    const filteredGeoJSON = {
+      type: "FeatureCollection",
+      features: filteredFeatures
+    };
+
+    const totalDistance = calculateTotalDistance(filteredFeatures);
     document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
 
     if (historicalDataLayer) {
       map.removeLayer(historicalDataLayer);
     }
 
-    historicalDataLayer = L.geoJSON(data, {
+    historicalDataLayer = L.geoJSON(filteredGeoJSON, {
       style: {
         color: 'blue',
         weight: 2,
         opacity: 0.25
       },
+      filter: feature => !filterWacoCheckbox.checked || isRouteInWaco(feature),
       onEachFeature: addRoutePopup
     }).addTo(map);
 
@@ -134,6 +147,14 @@ function calculateTotalDistance(features) {
   }, 0);
 }
 
+// Check if route is within Waco limits
+function isRouteInWaco(feature) {
+  return feature.geometry.coordinates.every(coord => {
+    const latlng = L.latLng(coord[1], coord[0]);
+    return wacoLimits.getBounds().contains(latlng);
+  });
+}
+
 // Add hover popup with route information and playback button
 function addRoutePopup(feature, layer) {
   const timestamp = feature.properties.timestamp;
@@ -141,39 +162,36 @@ function addRoutePopup(feature, layer) {
   const time = new Date(timestamp * 1000).toLocaleTimeString();
   const distance = calculateTotalDistance([feature]);
 
-  // Create the playback button element
   const playbackButton = document.createElement('button');
   playbackButton.textContent = 'Play Route';
   playbackButton.addEventListener('click', () => {
-    playRoute(feature.geometry.coordinates);
+    startPlayback(feature.geometry.coordinates);
   });
 
-  // Create a container for the popup content
   const popupContent = document.createElement('div');
   popupContent.innerHTML = `Date: ${date}<br>Time: ${time}<br>Distance: ${distance.toFixed(2)} miles`;
-  popupContent.appendChild(playbackButton); // Add the button to the popup
+  popupContent.appendChild(playbackButton);
 
   layer.bindPopup(popupContent);
 }
 
-// Function to play back the route
-function playRoute(coordinates) {
-  // If an animation is already running, stop it
+// Function to start route playback
+function startPlayback(coordinates) {
   if (playbackAnimation) {
     clearInterval(playbackAnimation);
     if (playbackPolyline) {
       map.removeLayer(playbackPolyline);
     }
+    if (playbackMarker) {
+      map.removeLayer(playbackMarker);
+    }
   }
 
-  // Initialize playbackPolyline 
-  playbackPolyline = L.polyline([], { // Start with an empty array
-    color: 'yellow', // Highlight color
-    weight: 4
-  }).addTo(map);
+  currentCoordIndex = 0;
+  playbackPolyline = L.polyline([], { color: 'yellow', weight: 4 }).addTo(map);
 
-  let i = 0; // Start from the first point
-  const playbackMarker = L.marker(L.latLng(coordinates[0][1], coordinates[0][0]), {
+  // Continue `startPlayback` function
+  playbackMarker = L.marker(L.latLng(coordinates[0][1], coordinates[0][0]), {
     icon: L.divIcon({
       className: 'blinking-marker',
       iconSize: [20, 20],
@@ -181,23 +199,61 @@ function playRoute(coordinates) {
     })
   }).addTo(map);
 
+  isPlaying = true;
+  playPauseBtn.textContent = 'Pause';
   playbackAnimation = setInterval(() => {
-    if (i < coordinates.length) {
-      const latLng = L.latLng(coordinates[i][1], coordinates[i][0]);
+    if (isPlaying && currentCoordIndex < coordinates.length) {
+      const latLng = L.latLng(coordinates[currentCoordIndex][1], coordinates[currentCoordIndex][0]);
       playbackMarker.setLatLng(latLng);
       playbackPolyline.addLatLng(latLng);
-      i++;
-    } else {
+      currentCoordIndex++;
+    } else if (currentCoordIndex >= coordinates.length) {
       clearInterval(playbackAnimation);
-      map.removeLayer(playbackMarker);
-      i = 0; // Reset i to 0 after clearing the interval
+      isPlaying = false;
+      playPauseBtn.textContent = 'Play';
     }
-  }, 100); // Adjust the interval for playback speed
+  }, 100 / playbackSpeed);
+}
+
+// Function to toggle play/pause
+function togglePlayPause() {
+  if (isPlaying) {
+    isPlaying = false;
+    playPauseBtn.textContent = 'Play';
+  } else {
+    isPlaying = true;
+    playPauseBtn.textContent = 'Pause';
+  }
+}
+
+// Function to stop playback
+function stopPlayback() {
+  clearInterval(playbackAnimation);
+  if (playbackPolyline) {
+    map.removeLayer(playbackPolyline);
+  }
+  if (playbackMarker) {
+    map.removeLayer(playbackMarker);
+  }
+  isPlaying = false;
+  playPauseBtn.textContent = 'Play';
+  currentCoordIndex = 0;
+}
+
+// Function to adjust playback speed
+function adjustPlaybackSpeed() {
+  playbackSpeed = playbackSpeedInput.value;
+  speedValueSpan.textContent = `${playbackSpeed}x`;
+
+  if (isPlaying) {
+    clearInterval(playbackAnimation);
+    startPlayback(playbackPolyline.getLatLngs().map(latlng => [latlng.lng, latlng.lat]));
+  }
 }
 
 // Apply date filter
 function applyDateFilter() {
-  displayHistoricalData();
+  displayHistoricalData(); // This should reload the historical data based on the current filter
 }
 
 // Fetch and display live data periodically
@@ -229,7 +285,6 @@ async function updateLiveDataAndMetrics() {
   await displayHistoricalData();
   setInterval(updateLiveDataAndMetrics, 3000); // Update every 3 seconds
 
-  // Load live route from Local Storage
   const storedRoute = localStorage.getItem('liveRoutePoints');
   if (storedRoute) {
     liveRoutePoints = JSON.parse(storedRoute);
@@ -244,33 +299,37 @@ async function updateLiveDataAndMetrics() {
 
 // Event listeners
 filterWacoCheckbox.addEventListener('change', () => {
+  if (filterWacoCheckbox.checked) {
+    wacoLimits.addTo(map);
+  } else {
+    wacoLimits.remove();
+  }
   displayHistoricalData();
 });
 
-// Event listener for the "Check for new driving data" button
 updateDataBtn.addEventListener('click', async () => {
   try {
-    updateDataBtn.disabled = true; // Disable the button while updating
-    updateDataBtn.textContent = "Updating..."; // Provide visual feedback
+    updateDataBtn.disabled = true;
+    updateDataBtn.textContent = "Updating...";
 
     const response = await fetch('/update_historical_data');
     const data = await response.json();
 
     if (response.ok) {
-      console.log(data.message); // Log success message
-      await displayHistoricalData(); // Refresh historical data on the map
+      console.log(data.message);
+      await displayHistoricalData();
     } else {
-      console.error(data.error); // Log error message
+      console.error(data.error);
     }
   } catch (error) {
     console.error('Error updating historical data:', error);
   } finally {
-    updateDataBtn.disabled = false; // Re-enable the button
-    updateDataBtn.textContent = "Check for new driving data"; // Reset text
+    updateDataBtn.disabled = false;
+    updateDataBtn.textContent = "Check for new driving data";
   }
 });
 
-// Function to filter routes based on time period
+// Event listener for filter buttons
 function filterRoutesBy(period) {
   const now = new Date();
   let startDate;
@@ -299,6 +358,21 @@ function filterRoutesBy(period) {
   }
 
   startDateInput.value = startDate.toISOString().slice(0, 10);
-  endDateInput.value = ''; // Clear end date
+  endDateInput.value = now.toISOString().slice(0, 10); // Ensure endDate is set to today
   applyDateFilter(); // Apply the filter
 }
+
+// Event listener for play/pause button
+playPauseBtn.addEventListener('click', () => {
+  togglePlayPause();
+});
+
+// Event listener for stop button
+stopBtn.addEventListener('click', () => {
+  stopPlayback();
+});
+
+// Event listener for playback speed adjustment
+playbackSpeedInput.addEventListener('input', () => {
+  adjustPlaybackSpeed();
+});
