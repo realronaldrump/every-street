@@ -42,6 +42,7 @@ async function loadWacoLimits() {
     if (filterWacoCheckbox.checked) {
       wacoLimits.addTo(map);
     }
+
   } catch (error) {
     console.error('Error loading Waco limits:', error);
   }
@@ -90,36 +91,28 @@ function updateLiveData(data) {
 // Filter and display historical data
 async function displayHistoricalData() {
   try {
-    const response = await fetch('/static/historical_data.geojson')
+    const startDate = startDateInput.value || "2020-01-01";
+    const endDate = endDateInput.value || new Date().toISOString().split("T")[0];
+    const filterWaco = filterWacoCheckbox.checked;
+
+    const url = `/historical_data?startDate=${startDate}&endDate=${endDate}&filterWaco=${filterWaco}`;
+
+    const response = await fetch(url);
     const data = await response.json();
 
-    const startDate = new Date(startDateInput.value).getTime() / 1000;
-    const endDate = endDateInput.value ? new Date(endDateInput.value).getTime() / 1000 : Infinity;
-
-    const filteredFeatures = data.features.filter(feature => {
-      const timestamp = feature.properties.timestamp;
-      return timestamp >= startDate && timestamp <= endDate;
-    });
-
-    const filteredGeoJSON = {
-      type: "FeatureCollection",
-      features: filteredFeatures
-    };
-
-    const totalDistance = calculateTotalDistance(filteredFeatures);
+    const totalDistance = calculateTotalDistance(data.features);
     document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
 
     if (historicalDataLayer) {
       map.removeLayer(historicalDataLayer);
     }
 
-    historicalDataLayer = L.geoJSON(filteredGeoJSON, {
+    historicalDataLayer = L.geoJSON(data, {
       style: {
         color: 'blue',
         weight: 2,
         opacity: 0.25
       },
-      filter: feature => !filterWacoCheckbox.checked || isRouteInWaco(feature),
       onEachFeature: addRoutePopup
     }).addTo(map);
 
@@ -139,14 +132,6 @@ function calculateTotalDistance(features) {
       return routeTotal + prevLatLng.distanceTo(currLatLng) * 0.000621371; // Convert meters to miles
     }, 0);
   }, 0);
-}
-
-// Check if route is within Waco limits
-function isRouteInWaco(feature) {
-  return feature.geometry.coordinates.every(coord => {
-    const latlng = L.latLng(coord[1], coord[0]);
-    return wacoLimits.getBounds().contains(latlng);
-  });
 }
 
 // Add hover popup with route information and playback button
@@ -173,8 +158,6 @@ function addRoutePopup(feature, layer) {
 
 // Function to play back the route
 function playRoute(coordinates) {
-  console.log("Coordinates:", coordinates); // Log the coordinates
-
   // If an animation is already running, stop it
   if (playbackAnimation) {
     clearInterval(playbackAnimation);
@@ -188,8 +171,6 @@ function playRoute(coordinates) {
     color: 'yellow', // Highlight color
     weight: 4
   }).addTo(map);
-
-  console.log("Initial playbackPolyline:", playbackPolyline.getLatLngs()); // Log the initial polyline coordinates
 
   let i = 0; // Start from the first point
   const playbackMarker = L.marker(L.latLng(coordinates[0][1], coordinates[0][0]), {
@@ -205,7 +186,6 @@ function playRoute(coordinates) {
       const latLng = L.latLng(coordinates[i][1], coordinates[i][0]);
       playbackMarker.setLatLng(latLng);
       playbackPolyline.addLatLng(latLng);
-      console.log("Added coordinate:", latLng, "Polyline:", playbackPolyline.getLatLngs()); // Log the added coordinate and the polyline
       i++;
     } else {
       clearInterval(playbackAnimation);
@@ -214,8 +194,6 @@ function playRoute(coordinates) {
     }
   }, 100); // Adjust the interval for playback speed
 }
-
-
 
 // Apply date filter
 function applyDateFilter() {
@@ -266,11 +244,6 @@ async function updateLiveDataAndMetrics() {
 
 // Event listeners
 filterWacoCheckbox.addEventListener('change', () => {
-  if (filterWacoCheckbox.checked) {
-    wacoLimits.addTo(map);
-  } else {
-    wacoLimits.remove();
-  }
   displayHistoricalData();
 });
 
@@ -288,17 +261,14 @@ updateDataBtn.addEventListener('click', async () => {
       await displayHistoricalData(); // Refresh historical data on the map
     } else {
       console.error(data.error); // Log error message
-      // Handle error (e.g., display an error message to the user)
     }
   } catch (error) {
     console.error('Error updating historical data:', error);
-    // Handle error
   } finally {
     updateDataBtn.disabled = false; // Re-enable the button
     updateDataBtn.textContent = "Check for new driving data"; // Reset text
   }
 });
-
 
 // Function to filter routes based on time period
 function filterRoutesBy(period) {

@@ -4,3 +4,4 @@ bounciepy
 geopy
 python-dotenv
 GitPython
+Shapely

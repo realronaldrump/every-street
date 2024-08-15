@@ -8,7 +8,7 @@ import io
 from geopy.distance import geodesic
 
 import aiohttp
-from flask import Flask, render_template, jsonify, request, send_from_directory, Response
+from flask import Flask, render_template, jsonify, request, Response
 from geopy.geocoders import Nominatim
 from aiohttp import ClientTimeout
 
@@ -46,6 +46,40 @@ live_trip_data = {
 
 # Initialize geocoder
 geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
+
+# Function to filter GeoJSON features based on date and Waco filter
+def filter_geojson_features(features, start_date, end_date, filter_waco):
+    filtered_features = []
+    waco_limits = None
+
+    # Load Waco city limits if the filter is enabled
+    if filter_waco:
+        with open("static/waco_city_limits.geojson") as f:
+            waco_limits = json.load(f)["features"][0]["geometry"]["coordinates"][0]
+
+    for feature in features:
+        timestamp = feature["properties"].get("timestamp")
+        
+        # Ensure timestamp is valid before comparing
+        if timestamp is not None and start_date <= timestamp <= end_date:
+            if filter_waco:
+                if is_route_in_waco(feature, waco_limits):
+                    filtered_features.append(feature)
+            else:
+                filtered_features.append(feature)
+    
+    return filtered_features
+
+# Function to check if a route is within Waco limits
+def is_route_in_waco(feature, waco_limits):
+    from shapely.geometry import Point, Polygon
+    
+    waco_polygon = Polygon(waco_limits)
+    for coord in feature["geometry"]["coordinates"]:
+        point = Point(coord[0], coord[1])
+        if not waco_polygon.contains(point):
+            return False
+    return True
 
 
 async def reverse_geocode(lat, lon, retries=3):
@@ -318,12 +352,6 @@ async def update_historical_data():
             await client.client_session.close()
 
 
-async def periodic_data_update():
-    while True:
-        await update_historical_data()
-        await asyncio.sleep(3600)  # Update every hour (adjust as needed)
-
-
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -331,14 +359,19 @@ def index():
 
 @app.route("/historical_data")
 def get_historical_data():
-    # Stream the GeoJSON data
-    def generate():
-        yield '{"type": "FeatureCollection", "features": ['
-        for feature in historical_geojson_features:
-            yield json.dumps(feature) + ","
-        yield "]}"
+    start_date = request.args.get("startDate", "2020-01-01")
+    end_date = request.args.get("endDate", datetime.now().strftime("%Y-%m-%d"))
+    filter_waco = request.args.get("filterWaco", "false").lower() == "true"
 
-    return Response(generate(), mimetype="application/json")
+    try:
+        start_timestamp = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp())
+        end_timestamp = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp())
+    except ValueError:
+        return jsonify({"error": "Invalid date format"}), 400
+
+    filtered_features = filter_geojson_features(historical_geojson_features, start_timestamp, end_timestamp, filter_waco)
+
+    return jsonify({"type": "FeatureCollection", "features": filtered_features})
 
 
 @app.route("/live_data")
@@ -436,6 +469,19 @@ def format_time(seconds):
     seconds = seconds % 60
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
+async def periodic_data_update():
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get('http://localhost:8080/update_historical_data') as response:
+                    if response.status == 200:
+                        print("Historical data updated successfully")
+                    else:
+                        print(f"Failed to update historical data: {response.status}")
+        except Exception as e:
+            print(f"An error occurred during periodic update: {e}")
+
+        await asyncio.sleep(3600)  # Update every hour (3600 seconds)
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
