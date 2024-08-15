@@ -52,6 +52,13 @@ geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 
 # Filter GeoJSON features based on date and Waco filter
 def filter_geojson_features(features, start_date, end_date, filter_waco):
+    # Convert the start and end date strings to datetime objects
+    start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    
+    # Adjust the end_datetime to include the entire day of end_date
+    end_datetime += timedelta(days=1) - timedelta(seconds=1)
+
     filtered_features = []
     waco_limits = None
 
@@ -62,14 +69,18 @@ def filter_geojson_features(features, start_date, end_date, filter_waco):
 
     for feature in features:
         timestamp = feature["properties"].get("timestamp")
-        
-        # Ensure timestamp is valid before comparing
-        if timestamp is not None and start_date <= timestamp <= end_date:
-            if filter_waco:
-                if is_route_in_waco(feature, waco_limits):
+
+        if timestamp is not None:
+            # Convert the timestamp to a datetime object
+            route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
+
+            # Check if the route falls within the filtered date range
+            if start_datetime <= route_datetime <= end_datetime:
+                if filter_waco:
+                    if is_route_in_waco(feature, waco_limits):
+                        filtered_features.append(feature)
+                else:
                     filtered_features.append(feature)
-            else:
-                filtered_features.append(feature)
     
     return filtered_features
 
