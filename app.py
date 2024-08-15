@@ -509,4 +509,4 @@ if __name__ == "__main__":
 
     loop.create_task(periodic_data_update())
 
-    socketio.run(app, debug=False, host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
+    socketio.run(app, debug=False, host='0.0.0.0', port=int(os.environ.get("PORT", 8080)), use_reloader=False)
