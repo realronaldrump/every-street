@@ -3,25 +3,24 @@ import json
 import datetime
 from datetime import datetime, timedelta, timezone
 import os
-import io
+import logging
 import eventlet
-eventlet.monkey_patch()  # Correctly patches the necessary modules for eventlet
+eventlet.monkey_patch()
 
 from geopy.distance import geodesic
-
 import aiohttp
-from flask import Flask, render_template, jsonify, request, Response, send_file
+from flask import Flask, render_template, jsonify, request, Response
 from geopy.geocoders import Nominatim
-from aiohttp import ClientTimeout
-
 from bounciepy import AsyncRESTAPIClient
-from flask_socketio import SocketIO, emit
+from flask_socketio import SocketIO
 from dotenv import load_dotenv
 from git import Repo
+from lxml import etree
 
-from lxml import etree  # For GPX export
+# Set up logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
 
-load_dotenv()  # Load environment variables from .env file
+load_dotenv()
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
@@ -33,50 +32,36 @@ DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 GITHUB_USER = os.getenv("GITHUB_USER")
 GITHUB_PAT = os.getenv("GITHUB_PAT")
 
-# Enable/Disable Geocoding
 ENABLE_GEOCODING = True
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
 socketio = SocketIO(app)
 
-# Global variable to store historical GeoJSON data (now a list)
 historical_geojson_features = []
-
-# Global variable to store live trip data with timestamp of last update
 live_trip_data = {
     'last_updated': datetime.now(timezone.utc),
     'data': []
 }
 
-# Initialize geocoder
 geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 
-# Filter GeoJSON features based on date and Waco filter
 def filter_geojson_features(features, start_date, end_date, filter_waco):
-    # Convert the start and end date strings to datetime objects
     start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    
-    # Adjust the end_datetime to include the entire day of end_date
     end_datetime += timedelta(days=1) - timedelta(seconds=1)
 
     filtered_features = []
     waco_limits = None
 
-    # Load Waco city limits if the filter is enabled
     if filter_waco:
         with open("static/waco_city_limits.geojson") as f:
             waco_limits = json.load(f)["features"][0]["geometry"]["coordinates"][0]
 
     for feature in features:
         timestamp = feature["properties"].get("timestamp")
-
         if timestamp is not None:
-            # Convert the timestamp to a datetime object
             route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-
-            # Check if the route falls within the filtered date range
             if start_datetime <= route_datetime <= end_datetime:
                 if filter_waco:
                     if is_route_in_waco(feature, waco_limits):
@@ -86,7 +71,6 @@ def filter_geojson_features(features, start_date, end_date, filter_waco):
     
     return filtered_features
 
-# Check if a route is within Waco limits
 def is_route_in_waco(feature, waco_limits):
     from shapely.geometry import Point, Polygon
     
@@ -97,7 +81,6 @@ def is_route_in_waco(feature, waco_limits):
             return False
     return True
 
-# Reverse geocode with retries and formatted output
 async def reverse_geocode(lat, lon, retries=3):
     for attempt in range(retries):
         try:
@@ -122,12 +105,11 @@ async def reverse_geocode(lat, lon, retries=3):
             else:
                 return "N/A"
         except Exception as e:
-            print(f"Attempt {attempt + 1} failed with error: {e}")
+            logging.error(f"Reverse geocoding attempt {attempt + 1} failed with error: {e}")
             if attempt < retries - 1:
                 await asyncio.sleep(1)
     return "N/A"
 
-# Fetch trip summary data for a specific date
 async def fetch_trip_data(session, vehicle_id, date, headers):
     start_time = f"{date}T00:00:00-05:00"
     end_time = f"{date}T23:59:59-05:00"
@@ -135,12 +117,12 @@ async def fetch_trip_data(session, vehicle_id, date, headers):
 
     async with session.get(summary_url, headers=headers) as response:
         if response.status == 200:
+            logging.info(f"Successfully fetched data for {date}")
             return await response.json()
         else:
-            print(f"Error fetching data for {date}. Status: {response.status}")
+            logging.error(f"Error fetching data for {date}. Status: {response.status}")
             return None
 
-# Create a list of GeoJSON features from Bouncie trip summary data
 def create_geojson_features_from_trips(data):
     features = []
 
@@ -163,18 +145,20 @@ def create_geojson_features_from_trips(data):
             }
             features.append(feature)
 
+    logging.info(f"Created {len(features)} GeoJSON features from trip data")
     return features
 
-# Fetch the latest location data from Bouncie
 async def get_latest_bouncie_data(client):
     vehicle_data = await client.get_vehicle_by_imei(imei=DEVICE_IMEI)
     if not vehicle_data or "stats" not in vehicle_data:
+        logging.error("No vehicle data or stats found in Bouncie response")
         return None
 
     stats = vehicle_data["stats"]
     location = stats.get("location")
 
     if not location:
+        logging.error("No location data found in Bouncie stats")
         return None
 
     location_address = (
@@ -188,7 +172,7 @@ async def get_latest_bouncie_data(client):
         timestamp_dt = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
         timestamp_unix = int(timestamp_dt.timestamp())
     except Exception as e:
-        print(f"Error converting timestamp: {e}")
+        logging.error(f"Error converting timestamp: {e}")
         return None
 
     bouncie_status = stats["battery"]["status"]
@@ -200,6 +184,7 @@ async def get_latest_bouncie_data(client):
         else "unknown"
     )
 
+    logging.info(f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}")
     return {
         "latitude": location["lat"],
         "longitude": location["lon"],
@@ -210,7 +195,6 @@ async def get_latest_bouncie_data(client):
         "address": location_address,
     }
 
-# Load historical data from Bouncie and create a combined GeoJSON file
 async def load_historical_data():
     global historical_geojson_features
     client = AsyncRESTAPIClient(
@@ -224,7 +208,7 @@ async def load_historical_data():
         try:
             success = await client.get_access_token()
             if not success:
-                print("Failed to obtain Bouncie access token.")
+                logging.error("Failed to obtain Bouncie access token.")
                 return
 
             headers = {
@@ -233,12 +217,13 @@ async def load_historical_data():
             }
 
             if os.path.exists("static/historical_data.geojson"):
-                print("GeoJSON file already exists. Skipping historical data fetch.")
+                logging.info("GeoJSON file already exists. Loading existing data.")
                 with open("static/historical_data.geojson", "r") as f:
                     data = json.load(f)
                     historical_geojson_features = data.get("features", [])
                 return
 
+            logging.info("No existing GeoJSON file found. Fetching historical data from Bouncie.")
             today = datetime.now(tz=timezone.utc)
             start_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
             end_date = today
@@ -248,7 +233,7 @@ async def load_historical_data():
             current_date = start_date
             while current_date < end_date:
                 date_str = current_date.strftime("%Y-%m-%d")
-                print(f"Fetching trips for: {date_str}")
+                logging.info(f"Fetching trips for: {date_str}")
 
                 trips_data = await fetch_trip_data(
                     session, VEHICLE_ID, date_str, headers
@@ -258,14 +243,14 @@ async def load_historical_data():
 
                 current_date += timedelta(days=1)
 
-            print("Creating combined GeoJSON file...")
+            logging.info("Creating combined GeoJSON file...")
             historical_geojson_features = create_geojson_features_from_trips(all_trips)
 
             with open("static/historical_data.geojson", "w") as f:
                 json.dump({"type": "FeatureCollection", "features": historical_geojson_features}, f)
 
         except Exception as e:
-            print(f"An error occurred: {e}")
+            logging.error(f"An error occurred during historical data loading: {e}")
 
         finally:
             await client.client_session.close()
@@ -283,9 +268,10 @@ async def update_historical_data():
 
     async with aiohttp.ClientSession() as session:
         try:
+            logging.info("Starting historical data update...")
             success = await client.get_access_token()
             if not success:
-                print("Failed to obtain Bouncie access token.")
+                logging.error("Failed to obtain Bouncie access token.")
                 return jsonify({'error': 'Failed to obtain Bouncie access token.'}), 500
 
             headers = {
@@ -299,11 +285,13 @@ async def update_historical_data():
                     for feature in historical_geojson_features
                     if feature["properties"].get("timestamp") is not None
                 )
+                logging.info(f"Latest timestamp found in existing data: {latest_timestamp}")
                 latest_date = datetime.fromtimestamp(
                     latest_timestamp, tz=timezone.utc
                 ) + timedelta(days=1)
             else:
                 latest_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
+                logging.info("No existing data found. Starting from 2020-01-01.")
 
             today = datetime.now(tz=timezone.utc)
             all_trips = []
@@ -311,18 +299,22 @@ async def update_historical_data():
             current_date = latest_date
             while current_date < today:
                 date_str = current_date.strftime("%Y-%m-%d")
-                print(f"Fetching trips for: {date_str}")
+                logging.info(f"Fetching trips for: {date_str}")
 
                 trips_data = await fetch_trip_data(
                     session, VEHICLE_ID, date_str, headers
                 )
                 if trips_data:
+                    logging.info(f"Fetched {len(trips_data)} trips for {date_str}")
                     all_trips.extend(trips_data)
+                else:
+                    logging.info(f"No trips data returned for {date_str}")
 
                 current_date += timedelta(days=1)
 
             new_features = create_geojson_features_from_trips(all_trips)
             if new_features:
+                logging.info(f"Appending {len(new_features)} new features to GeoJSON.")
                 historical_geojson_features.extend(new_features)
 
                 with open("static/historical_data.geojson", "w") as f:
@@ -338,13 +330,17 @@ async def update_historical_data():
                     repo.git.commit('-m', "Updated historical data")
                     auth_string = f'{GITHUB_USER}:{GITHUB_PAT}'
                     repo.git.push('https://' + auth_string + '@github.com/realronaldrump/every-street.git', 'main')
+                    logging.info("Changes committed and pushed to GitHub.")
                 else:
-                    print("No changes to commit.")
+                    logging.info("No changes to commit. The repository is clean.")
+
+            else:
+                logging.info("No new features to append. No updates made.")
 
             return jsonify({"message": "Historical data updated successfully!"}), 200
 
         except Exception as e:
-            print(f"An error occurred: {e}")
+            logging.error(f"An error occurred during the update process: {e}")
             return jsonify({"error": str(e)}), 500
 
         finally:
@@ -366,10 +362,11 @@ def get_historical_data():
         start_timestamp = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp())
         end_timestamp = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp())
     except ValueError:
+        logging.error("Invalid date format received for historical data filtering.")
         return jsonify({"error": "Invalid date format"}), 400
 
     filtered_features = filter_geojson_features(historical_geojson_features, start_timestamp, end_timestamp, filter_waco)
-
+    logging.info(f"Returning {len(filtered_features)} filtered features.")
     return jsonify({"type": "FeatureCollection", "features": filtered_features})
 
 # Route to get live data
@@ -385,21 +382,30 @@ async def get_live_data():
 
     async with aiohttp.ClientSession() as session:
         try:
+            logging.info("Fetching live data from Bouncie...")
             success = await client.get_access_token()
             if not success:
+                logging.error("Failed to obtain Bouncie access token.")
                 return jsonify({"error": "Failed to obtain Bouncie access token."})
 
             bouncie_data = await get_latest_bouncie_data(client)
             if bouncie_data:
+                logging.info(f"Live data received: {bouncie_data}")
                 live_trip_data["last_updated"] = datetime.now(timezone.utc)
                 live_trip_data["data"].append(bouncie_data)
 
-                await socketio.emit('live_update', bouncie_data)  # Ensure this is awaited
+                # Emit the update in a synchronous context
+                def emit_update():
+                    socketio.emit('live_update', bouncie_data)
+
+                socketio.start_background_task(emit_update)
 
                 return jsonify(bouncie_data)
+            logging.info("No live data available.")
             return jsonify({"error": "No live data available"})
 
         except Exception as e:
+            logging.error(f"An error occurred while fetching live data: {e}")
             return jsonify({"error": str(e)})
 
         finally:
@@ -450,6 +456,7 @@ def get_trip_metrics():
         ) if end_time else "N/A",
     }
 
+    logging.info(f"Returning trip metrics: {formatted_metrics}")
     return jsonify(formatted_metrics)
 
 # Helper function to format time
@@ -466,7 +473,6 @@ def export_gpx():
     end_date = request.args.get("endDate", None)
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
 
-    # Handle missing end_date by setting it to today's date
     if not end_date:
         end_date = datetime.now().strftime("%Y-%m-%d")
 
@@ -474,6 +480,7 @@ def export_gpx():
         start_timestamp = int(datetime.strptime(start_date, "%Y-%m-%d").timestamp())
         end_timestamp = int(datetime.strptime(end_date, "%Y-%m-%d").timestamp())
     except ValueError:
+        logging.error("Invalid date format received for GPX export.")
         return jsonify({"error": "Invalid date format"}), 400
 
     filtered_features = filter_geojson_features(historical_geojson_features, start_timestamp, end_timestamp, filter_waco)
@@ -488,7 +495,9 @@ def export_gpx():
             time.text = datetime.utcfromtimestamp(feature["properties"]["timestamp"]).isoformat() + "Z"
 
     gpx_data = etree.tostring(gpx, pretty_print=True, xml_declaration=True, encoding="UTF-8")
+    logging.info(f"Exporting {len(filtered_features)} features to GPX format.")
     return Response(gpx_data, mimetype='application/gpx+xml', headers={"Content-Disposition": "attachment;filename=export.gpx"})
+
 # Periodic update for historical data
 async def periodic_data_update():
     while True:
@@ -496,11 +505,11 @@ async def periodic_data_update():
             async with aiohttp.ClientSession() as session:
                 async with session.get('http://localhost:8080/update_historical_data') as response:
                     if response.status == 200:
-                        print("Historical data updated successfully")
+                        logging.info("Historical data updated successfully via periodic update.")
                     else:
-                        print(f"Failed to update historical data: {response.status}")
+                        logging.error(f"Failed to update historical data via periodic update: {response.status}")
         except Exception as e:
-            print(f"An error occurred during periodic update: {e}")
+            logging.error(f"An error occurred during periodic update: {e}")
 
         await asyncio.sleep(3600)
 
