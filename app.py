@@ -513,7 +513,7 @@ async def periodic_data_update():
 
         await asyncio.sleep(3600)
 
-# Inside your __main__ block:
+
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -521,5 +521,4 @@ if __name__ == "__main__":
 
     loop.create_task(periodic_data_update())
 
-    # Note the removal of `server="eventlet"`
     socketio.run(app, debug=False, host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
