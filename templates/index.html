@@ -51,6 +51,7 @@
       <section id="playback-controls">
         <button id="playPauseBtn">Play</button>
         <button id="stopBtn">Stop</button>
+        <!-- These buttons are for route playback controls, so Skip should not be here -->
         <label for="playbackSpeed">Speed:</label>
         <input type="range" id="playbackSpeed" min="0.5" max="2" step="0.1" value="1">
         <span id="speedValue">1x</span>
@@ -111,10 +112,42 @@
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
   <script src="/static/js/map.js"></script>
-  <audio autoplay loop controls>
-    <source src="/static/hypesong.mp3" type="audio/mpeg">
-    <source src="/static/roadsofwaco.mp3" type="audio/mpeg">
+  
+  <!-- Audio Player -->
+  <audio id="audioPlayer" autoplay controls>
+    <source id="audioSource" src="/static/hypesong.mp3" type="audio/mpeg">
     Your browser does not support the audio element.
   </audio>
+  <button id="skipBtn">Skip</button> <!-- Place the Skip button here, next to the audio player -->
+
+  <!-- JavaScript for managing playlist -->
+  <!-- JavaScript for managing playlist -->
+<script>
+  const audioPlayer = document.getElementById('audioPlayer');
+  const audioSource = document.getElementById('audioSource');
+  const skipBtn = document.getElementById('skipBtn');
+  const tracks = [
+    '/static/hypesong.mp3',
+    '/static/roadsofwaco.mp3'
+  ];
+  let currentTrack = 0;
+
+  // Function to load and play the next track
+  function playNextTrack() {
+    currentTrack++;
+    if (currentTrack >= tracks.length) {
+      currentTrack = 0;  // Loop back to the first track
+    }
+    audioSource.src = tracks[currentTrack];
+    audioPlayer.load(); // Reload the new source
+    audioPlayer.play();
+  }
+
+  // Event listener for the 'ended' event to play the next track automatically
+  audioPlayer.addEventListener('ended', playNextTrack);
+
+  // Event listener for the 'click' event on the Skip button to manually skip to the next track
+  skipBtn.addEventListener('click', playNextTrack);
+</script>
 </body>
 </html>
