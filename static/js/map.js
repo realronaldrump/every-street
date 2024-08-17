@@ -50,8 +50,8 @@ async function loadWacoLimits() {
       style: {
         color: 'red',
         weight: 2,
-        fillColor: 'blue',
-        fillOpacity: 0.1
+        fillColor: 'orange',
+        fillOpacity: 0.03
       }
     });
 
