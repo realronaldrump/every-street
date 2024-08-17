@@ -17,6 +17,8 @@ let playbackMarker;
 let playbackSpeed = 1;
 let isPlaying = false;
 let currentCoordIndex = 0;
+let drawnItems = new L.FeatureGroup();
+map.addLayer(drawnItems);
 
 // DOM elements
 const filterWacoCheckbox = document.getElementById('filterWaco');
@@ -287,7 +289,7 @@ async function updateLiveDataAndMetrics() {
 // Export routes to GPX
 function exportToGPX() {
   const startDate = startDateInput.value;
-  const endDate = endDateInput.value || new Date().toISOString().slice(0, 10); 
+  const endDate = endDateInput.value || new Date().toISOString().slice(0, 10);
   const filterWaco = filterWacoCheckbox.checked ? 'true' : 'false';
 
   const exportUrl = `/export_gpx?startDate=${startDate}&endDate=${endDate}&filterWaco=${filterWaco}`;
@@ -377,7 +379,7 @@ function filterRoutesBy(period) {
   applyDateFilter(); // Apply the filter
 }
 
-// Function to clear the current live route playback
+// Function to clear the current live route playback AND the playback route
 function clearLiveRoute() {
   if (liveRoutePolyline) {
     map.removeLayer(liveRoutePolyline);
@@ -386,11 +388,26 @@ function clearLiveRoute() {
 
   liveRoutePoints = []; // Reset the points array
   localStorage.removeItem('liveRoutePoints'); // Clear from local storage
+
+  // Clear the playback route
+  if (playbackPolyline) {
+    map.removeLayer(playbackPolyline);
+    playbackPolyline = null;
+  }
+
+  if (playbackMarker) {
+    map.removeLayer(playbackMarker);
+    playbackMarker = null;
+  }
+
+  // Stop the playback animation if it's running
+  stopPlayback();
 }
 
 // Add event listener to the Clear Route button
 const clearRouteBtn = document.getElementById('clearRouteBtn');
 clearRouteBtn.addEventListener('click', clearLiveRoute);
+
 // Event listener for play/pause button
 playPauseBtn.addEventListener('click', () => {
   togglePlayPause();
@@ -405,3 +422,81 @@ stopBtn.addEventListener('click', () => {
 playbackSpeedInput.addEventListener('input', () => {
   adjustPlaybackSpeed();
 });
+
+// Add drawing controls to the map
+const drawControl = new L.Control.Draw({
+  draw: {
+    polyline: false,
+    polygon: true,
+    circle: false,
+    rectangle: false,
+    marker: false,
+    circlemarker: false
+  },
+  edit: {
+    featureGroup: drawnItems
+  }
+});
+map.addControl(drawControl);
+
+// Event listener for when a polygon is drawn
+map.on(L.Draw.Event.CREATED, (e) => {
+  const layer = e.layer;
+  drawnItems.addLayer(layer);
+  filterHistoricalDataByPolygon(layer);
+});
+
+// Event listener for when a polygon is edited
+map.on(L.Draw.Event.EDITED, (e) => {
+  const layers = e.layers;
+  layers.eachLayer((layer) => {
+    filterHistoricalDataByPolygon(layer);
+  });
+});
+
+// Event listener for when a polygon is deleted
+map.on(L.Draw.Event.DELETED, (e) => {
+  displayHistoricalData(); // Revert to default filtering
+});
+
+// Function to filter historical data by a drawn polygon
+async function filterHistoricalDataByPolygon(polygon) {
+  try {
+    const response = await fetch('/static/historical_data.geojson');
+    const data = await response.json();
+
+    const filteredFeatures = data.features.filter(feature => {
+      return feature.geometry.coordinates.some(coord => {
+        const point = L.latLng(coord[1], coord[0]);
+        return polygon.getBounds().contains(point);
+      });
+    });
+
+    const filteredGeoJSON = {
+      type: "FeatureCollection",
+      features: filteredFeatures
+    };
+
+    if (historicalDataLayer) {
+      map.removeLayer(historicalDataLayer);
+    }
+
+    historicalDataLayer = L.geoJSON(filteredGeoJSON, {
+      style: {
+        color: 'blue',
+        weight: 2,
+        opacity: 0.25
+      },
+      onEachFeature: addRoutePopup
+    }).addTo(map);
+
+  } catch (error) {
+    console.error('Error filtering historical data by polygon:', error);
+  }
+}
+
+// Function to clear all drawn shapes
+function clearDrawnShapes() {
+  drawnItems.clearLayers();
+  displayHistoricalData(); // Revert to default filtering
+}

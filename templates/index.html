@@ -6,6 +6,7 @@
   <title>Every Street - Tracking Davis in Waco</title>
   <meta name="description" content="Track Davis as he conquers every street in Waco, Texas">
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
   <link rel="preconnect" href="https://fonts.gstatic.com">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/styles.css">
@@ -44,6 +45,7 @@
         <button onclick="applyDateFilter()">Apply Filter</button>
         <button id="updateDataBtn">Check for new driving data</button>
         <button onclick="exportToGPX()">Export to GPX</button>
+        <button onclick="clearDrawnShapes()">Clear Drawn Shapes</button>
       </section>
 
       <section id="map" aria-label="Map of Davis's routes"></section>
@@ -110,9 +112,10 @@
   </div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
   <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
   <script src="/static/js/map.js"></script>
-  
+
   <!-- Audio Player -->
   <audio id="audioPlayer" autoplay controls>
     <source id="audioSource" src="/static/hypesong.mp3" type="audio/mpeg">
@@ -121,30 +124,30 @@
   <button id="skipBtn">Skip</button>
 
   <!-- JavaScript for managing playlist -->
-<script>
-  const audioPlayer = document.getElementById('audioPlayer');
-  const audioSource = document.getElementById('audioSource');
-  const skipBtn = document.getElementById('skipBtn');
-  const tracks = [
-    '/static/hypesong.mp3',
-    '/static/roadsofwaco.mp3'
-  ];
-  let currentTrack = 0;
+  <script>
+    const audioPlayer = document.getElementById('audioPlayer');
+    const audioSource = document.getElementById('audioSource');
+    const skipBtn = document.getElementById('skipBtn');
+    const tracks = [
+      '/static/hypesong.mp3',
+      '/static/roadsofwaco.mp3'
+    ];
+    let currentTrack = 0;
 
-  // Function to load and play the next track
-  function playNextTrack() {
-    currentTrack++;
-    if (currentTrack >= tracks.length) {
-      currentTrack = 0;  // Loop back to the first track
+    // Function to load and play the next track
+    function playNextTrack() {
+      currentTrack++;
+      if (currentTrack >= tracks.length) {
+        currentTrack = 0;  // Loop back to the first track
+      }
+      audioSource.src = tracks[currentTrack];
+      audioPlayer.load(); // Reload the new source
+      audioPlayer.play();
     }
-    audioSource.src = tracks[currentTrack];
-    audioPlayer.load(); // Reload the new source
-    audioPlayer.play();
-  }
 
-  audioPlayer.addEventListener('ended', playNextTrack);
+    audioPlayer.addEventListener('ended', playNextTrack);
 
-  skipBtn.addEventListener('click', playNextTrack);
-</script>
+    skipBtn.addEventListener('click', playNextTrack);
+  </script>
 </body>
 </html>
