@@ -19,4 +19,5 @@ static/historical_data.gpx
 .vercel
 
 __pycache__
-.DS_Store.DS_Store
+.DS_Store
+.DS_Store
