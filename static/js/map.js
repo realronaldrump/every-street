@@ -377,6 +377,20 @@ function filterRoutesBy(period) {
   applyDateFilter(); // Apply the filter
 }
 
+// Function to clear the current live route playback
+function clearLiveRoute() {
+  if (liveRoutePolyline) {
+    map.removeLayer(liveRoutePolyline);
+    liveRoutePolyline = null;
+  }
+
+  liveRoutePoints = []; // Reset the points array
+  localStorage.removeItem('liveRoutePoints'); // Clear from local storage
+}
+
+// Add event listener to the Clear Route button
+const clearRouteBtn = document.getElementById('clearRouteBtn');
+clearRouteBtn.addEventListener('click', clearLiveRoute);
 // Event listener for play/pause button
 playPauseBtn.addEventListener('click', () => {
   togglePlayPause();
