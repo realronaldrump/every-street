@@ -10,7 +10,6 @@ let wacoLimits;
 let liveMarker;
 let historicalDataLayer;
 let liveRoutePolyline;
-let liveRoutePoints = [];
 let playbackAnimation;
 let playbackPolyline;
 let playbackMarker;
@@ -65,6 +64,29 @@ async function loadWacoLimits() {
   }
 }
 
+// Function to send live data to the server
+function sendLiveDataToServer(data) {
+  fetch('/live_route', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(data)
+  })
+  .then(response => {
+    if (!response.ok) {
+      throw new Error('Network response was not ok');
+    }
+    return response.json();
+  })
+  .then(data => {
+    console.log(data.message);
+  })
+  .catch(error => {
+    console.error('Error sending live data to server:', error);
+  });
+}
+
 // Update live data on the map and stats
 function updateLiveData(data) {
   document.getElementById('lastUpdated').textContent = new Date(data.timestamp * 1000).toLocaleString();
@@ -75,6 +97,7 @@ function updateLiveData(data) {
 
   const latLng = [data.latitude, data.longitude];
 
+  // If the liveMarker does not exist, create it
   if (!liveMarker) {
     liveMarker = L.marker(latLng, {
       icon: L.divIcon({
@@ -84,21 +107,24 @@ function updateLiveData(data) {
       })
     }).addTo(map);
   } else {
-    liveMarker.setLatLng(latLng);
+    const currentLatLng = liveMarker.getLatLng();
+
+    // Check if there has been movement
+    if (currentLatLng.lat !== latLng[0] || currentLatLng.lng !== latLng[1]) {
+      liveMarker.setLatLng(latLng);
+
+      // Update live route polyline if there's been movement
+      if (!liveRoutePolyline) {
+        if (!liveRoutePolyline) {
+          liveRoutePolyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
+        }
+        liveRoutePolyline.addLatLng(latLng);
+      }
+
+      // Send live data to the server to record the movement
+      sendLiveDataToServer(data);
+    }
   }
-
-  liveRoutePoints.push(latLng);
-
-  if (!liveRoutePolyline) {
-    liveRoutePolyline = L.polyline(liveRoutePoints, {
-      color: '#007bff',
-      weight: 4
-    }).addTo(map);
-  } else {
-    liveRoutePolyline.setLatLngs(liveRoutePoints);
-  }
-
-  localStorage.setItem('liveRoutePoints', JSON.stringify(liveRoutePoints));
 }
 
 // Filter and display historical data
@@ -260,7 +286,7 @@ function adjustPlaybackSpeed() {
 
 // Apply date filter
 function applyDateFilter() {
-  displayHistoricalData(); // This should reload the historical data based on the current filter
+  displayHistoricalData();
 }
 
 // Fetch and display live data periodically
@@ -296,22 +322,39 @@ function exportToGPX() {
   window.location.href = exportUrl;
 }
 
-// Initialize
-(async function init() {
-  await loadWacoLimits();
-  await displayHistoricalData();
-  setInterval(updateLiveDataAndMetrics, 3000); // Update every 3 seconds
+// Fetch and display live route data from the server
+async function loadLiveRouteData() {
+  try {
+    const response = await fetch('/live_route');
+    const data = await response.json();
 
-  const storedRoute = localStorage.getItem('liveRoutePoints');
-  if (storedRoute) {
-    liveRoutePoints = JSON.parse(storedRoute);
-    if (liveRoutePoints.length > 0) {
-      liveRoutePolyline = L.polyline(liveRoutePoints, {
+    if (data.features.length > 0) {
+      const coordinates = data.features.map(feature => feature.geometry.coordinates);
+      liveRoutePolyline = L.polyline(coordinates.map(coord => [coord[1], coord[0]]), {
         color: '#007bff',
         weight: 4
       }).addTo(map);
+
+      const lastCoord = coordinates[coordinates.length - 1];
+      liveMarker = L.marker([lastCoord[1], lastCoord[0]], {
+        icon: L.divIcon({
+          className: 'blinking-marker',
+          iconSize: [20, 20],
+          html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
+        })
+      }).addTo(map);
     }
+  } catch (error) {
+    console.error('Error loading live route data:', error);
   }
+}
+
+// Initialize (Modified to load live route data)
+(async function init() {
+  await loadWacoLimits();
+  await displayHistoricalData();
+  await loadLiveRouteData(); // Load live route data from server
+  setInterval(updateLiveDataAndMetrics, 3000); // Update every 3 seconds
 })();
 
 // Event listeners
@@ -385,9 +428,6 @@ function clearLiveRoute() {
     map.removeLayer(liveRoutePolyline);
     liveRoutePolyline = null;
   }
-
-  liveRoutePoints = []; // Reset the points array
-  localStorage.removeItem('liveRoutePoints'); // Clear from local storage
 
   // Clear the playback route
   if (playbackPolyline) {
