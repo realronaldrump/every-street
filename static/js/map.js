@@ -287,7 +287,7 @@ async function updateLiveDataAndMetrics() {
 // Export routes to GPX
 function exportToGPX() {
   const startDate = startDateInput.value;
-  const endDate = endDateInput.value;
+  const endDate = endDateInput.value || new Date().toISOString().slice(0, 10); 
   const filterWaco = filterWacoCheckbox.checked ? 'true' : 'false';
 
   const exportUrl = `/export_gpx?startDate=${startDate}&endDate=${endDate}&filterWaco=${filterWaco}`;
