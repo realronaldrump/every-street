@@ -10,7 +10,8 @@ from shapely.geometry import Point, Polygon
 from bouncie_api import BouncieAPI
 from github_updater import GitHubUpdater
 
-VEHICLE_ID = os.getenv("VEHICLE_ID")  # Correctly imports VEHICLE_ID from environment variables
+VEHICLE_ID = os.getenv("VEHICLE_ID")
+
 
 class GeoJSONHandler:
     def __init__(self):
@@ -26,14 +27,22 @@ class GeoJSONHandler:
             with open("static/historical_data.geojson", "r") as f:
                 data = json.load(f)
                 self.historical_geojson_features = data.get("features", [])
-                logging.info(f"Loaded {len(self.historical_geojson_features)} features from historical_data.geojson")
+                logging.info(
+                    f"Loaded {len(self.historical_geojson_features)} features from historical_data.geojson"
+                )
         except FileNotFoundError:
-            logging.info("No existing GeoJSON file found. Fetching historical data from Bouncie.")
+            logging.info(
+                "No existing GeoJSON file found. Fetching historical data from Bouncie."
+            )
             await self.update_historical_data(fetch_all=True)
 
     def filter_geojson_features(self, start_date, end_date, filter_waco):
-        start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
+        end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
         end_datetime += timedelta(days=1) - timedelta(seconds=1)
 
         filtered_features = []
@@ -43,23 +52,33 @@ class GeoJSONHandler:
             with open("static/waco_city_limits.geojson") as f:
                 waco_limits = json.load(f)["features"][0]["geometry"]["coordinates"][0]
 
-        logging.info(f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}")
+        logging.info(
+            f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}"
+        )
 
         for feature in self.historical_geojson_features:
             timestamp = feature["properties"].get("timestamp")
             if timestamp is not None:
                 route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-                print(f"Feature Timestamp: {route_datetime}, Start: {start_datetime}, End: {end_datetime}")
+                print(
+                    f"Feature Timestamp: {route_datetime}, Start: {start_datetime}, End: {end_datetime}"
+                )
                 if start_datetime <= route_datetime <= end_datetime:
                     if filter_waco:
                         if self.is_route_in_waco(feature, waco_limits):
                             filtered_features.append(feature)
-                            logging.debug("Feature included (within Waco)")  # Debugging inclusion
+                            logging.debug(
+                                "Feature included (within Waco)"
+                            )  # Debugging inclusion
                         else:
-                            logging.debug("Feature excluded (outside Waco)")  # Debugging exclusion
+                            logging.debug(
+                                "Feature excluded (outside Waco)"
+                            )  # Debugging exclusion
                     else:
                         filtered_features.append(feature)
-                        logging.debug("Feature included (Waco filter disabled)")  # Debugging inclusion
+                        logging.debug(
+                            "Feature included (Waco filter disabled)"
+                        )  # Debugging inclusion
 
         logging.info(f"Filtered {len(filtered_features)} features")
         return filtered_features
@@ -88,7 +107,9 @@ class GeoJSONHandler:
                 latest_date = datetime.fromtimestamp(
                     latest_timestamp, tz=timezone.utc
                 ) + timedelta(days=1)
-                logging.info(f"Fetching historical data from Bouncie since {latest_date}.")
+                logging.info(
+                    f"Fetching historical data from Bouncie since {latest_date}."
+                )
             else:
                 latest_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
                 logging.info("Fetching historical data from Bouncie since 2020-01-01.")
@@ -120,7 +141,10 @@ class GeoJSONHandler:
 
                 with open("static/historical_data.geojson", "w") as f:
                     json.dump(
-                        {"type": "FeatureCollection", "features": self.historical_geojson_features},
+                        {
+                            "type": "FeatureCollection",
+                            "features": self.historical_geojson_features,
+                        },
                         f,
                     )
 

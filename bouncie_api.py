@@ -19,6 +19,7 @@ DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 
 ENABLE_GEOCODING = True
 
+
 class BouncieAPI:
     def __init__(self):
         self.client = AsyncRESTAPIClient(
@@ -28,10 +29,7 @@ class BouncieAPI:
             auth_code=AUTH_CODE,
         )
         self.geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
-        self.live_trip_data = {
-            'last_updated': datetime.now(timezone.utc),
-            'data': []
-        }
+        self.live_trip_data = {"last_updated": datetime.now(timezone.utc), "data": []}
 
     async def get_latest_bouncie_data(self):
         try:
@@ -56,7 +54,9 @@ class BouncieAPI:
 
             try:
                 timestamp_iso = stats["lastUpdated"]
-                timestamp_dt = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
+                timestamp_dt = datetime.fromisoformat(
+                    timestamp_iso.replace("Z", "+00:00")
+                )
                 timestamp_unix = int(timestamp_dt.timestamp())
             except Exception as e:
                 logging.error(f"Error converting timestamp: {e}")
@@ -71,7 +71,9 @@ class BouncieAPI:
                 else "unknown"
             )
 
-            logging.info(f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}")
+            logging.info(
+                f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}"
+            )
             return {
                 "latitude": location["lat"],
                 "longitude": location["lon"],
@@ -92,30 +94,47 @@ class BouncieAPI:
                     None, lambda: self.geolocator.reverse((lat, lon), addressdetails=True)
                 )
                 if location:
-                    address = location.raw['address']
-                    place = address.get('place', '')
-                    building = address.get('building', '')
-                    house_number = address.get('house_number', '')
-                    road = address.get('road', '')
-                    city = address.get('city', '')
-                    state = address.get('state', '')
-                    postcode = address.get('postcode', '')
+                    address = location.raw["address"]
+                    place = address.get("place", "")
+                    building = address.get("building", "")
+                    house_number = address.get("house_number", "")
+                    road = address.get("road", "")
+                    city = address.get("city", "")
+                    state = address.get("state", "")
+                    postcode = address.get("postcode", "")
 
-                    formatted_address = f"{place}<br>" if place else ''
-                    formatted_address += f"{building}<br>" if building else ''
+                    formatted_address = f"{place}<br>" if place else ""
+                    formatted_address += f"{building}<br>" if building else ""
                     formatted_address += f"{house_number} {road}<br>{city}, {state} {postcode}"
 
                     return formatted_address
                 else:
                     return "N/A"
             except Exception as e:
-                logging.error(f"Reverse geocoding attempt {attempt + 1} failed with error: {e}")
+                logging.error(
+                    f"Reverse geocoding attempt {attempt + 1} failed with error: {e}"
+                )
                 if attempt < retries - 1:
                     await asyncio.sleep(1)
         return "N/A"
 
+    async def fetch_trip_data(self, session, vehicle_id, date, headers):
+        start_time = f"{date}T00:00:00-05:00"
+        end_time = f"{date}T23:59:59-05:00"
+        summary_url = f"https://www.bouncie.app/api/vehicles/{vehicle_id}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
+
+        async with session.get(summary_url, headers=headers) as response:
+            if response.status == 200:
+                logging.info(f"Successfully fetched data for {date}")
+                return await response.json()
+            else:
+                logging.error(f"Error fetching data for {date}. Status: {response.status}")
+                return None
+
     def get_trip_metrics(self):
-        time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
+        time_since_update = datetime.now(timezone.utc) - self.live_trip_data[
+            "last_updated"
+        ]
         if time_since_update.total_seconds() > 45:
             self.live_trip_data["data"] = []
 
@@ -150,9 +169,12 @@ class BouncieAPI:
             "max_speed": max_speed,
             "start_time": datetime.fromtimestamp(start_time).strftime(
                 "%Y-%m-%d %H:%M:%S"
-            ) if start_time else "N/A",
-            "end_time": datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S"
-            ) if end_time else "N/A",
+            )
+            if start_time
+            else "N/A",
+            "end_time": datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S")
+            if end_time
+            else "N/A",
         }
 
         logging.info(f"Returning trip metrics: {formatted_metrics}")

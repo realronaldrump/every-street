@@ -28,10 +28,12 @@ gpx_exporter = GPXExporter()
 # Load historical data on startup
 asyncio.run(geojson_handler.load_historical_data())
 
+
 # Route to serve the index page
 @app.route("/")
 def index():
     return render_template("index.html")
+
 
 # Route to get filtered historical data
 @app.route("/historical_data")
@@ -40,23 +42,28 @@ def get_historical_data():
     end_date = request.args.get("endDate", datetime.now().strftime("%Y-%m-%d"))
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
 
-    filtered_features = geojson_handler.filter_geojson_features(start_date, end_date, filter_waco)
+    filtered_features = geojson_handler.filter_geojson_features(
+        start_date, end_date, filter_waco
+    )
     return jsonify({"type": "FeatureCollection", "features": filtered_features})
+
 
 # Route to get live data
 @app.route("/live_data")
 async def get_live_data():
     bouncie_data = await bouncie_api.get_latest_bouncie_data()
     if bouncie_data:
-        socketio.emit('live_update', bouncie_data)
+        socketio.emit("live_update", bouncie_data)
         return jsonify(bouncie_data)
     return jsonify({"error": "No live data available"})
+
 
 # Route to get trip metrics
 @app.route("/trip_metrics")
 def get_trip_metrics():
     formatted_metrics = bouncie_api.get_trip_metrics()
     return jsonify(formatted_metrics)
+
 
 # Route to export data to GPX format
 @app.route("/export_gpx")
@@ -68,10 +75,15 @@ def export_gpx():
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
 
     gpx_data = gpx_exporter.export_to_gpx(start_date, end_date, filter_waco)
-    return Response(gpx_data, mimetype='application/gpx+xml', headers={"Content-Disposition": "attachment;filename=export.gpx"})
+    return Response(
+        gpx_data,
+        mimetype="application/gpx+xml",
+        headers={"Content-Disposition": "attachment;filename=export.gpx"},
+    )
+
 
 # Update historical data and push changes to GitHub
-@app.route('/update_historical_data')
+@app.route("/update_historical_data")
 async def update_historical_data():
     try:
         await geojson_handler.update_historical_data()
@@ -79,6 +91,7 @@ async def update_historical_data():
     except Exception as e:
         logging.error(f"An error occurred during the update process: {e}")
         return jsonify({"error": str(e)}), 500
+
 
 # Periodic update for historical data
 async def periodic_data_update():
@@ -91,8 +104,11 @@ async def periodic_data_update():
 
         await asyncio.sleep(3600)
 
+
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     loop.create_task(periodic_data_update())
-    socketio.run(app, debug=False, host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
+    socketio.run(
+        app, debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 8080))
+    )
