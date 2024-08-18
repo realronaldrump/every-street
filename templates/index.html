@@ -5,11 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Every Street - Tracking Davis in Waco</title>
   <meta name="description" content="Track Davis as he conquers every street in Waco, Texas">
+
+  <!-- External Stylesheets -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
   <link rel="preconnect" href="https://fonts.gstatic.com">
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/styles.css">
+
+  <!-- External Libraries (with defer) -->
+  <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" defer></script>
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js" defer></script>
+  <script src="https://cdn.socket.io/4.0.1/socket.io.min.js" defer></script> 
 </head>
 <body>
   <div class="container">
@@ -33,6 +41,15 @@
           <label for="filterWaco">
             <input type="checkbox" id="filterWaco" checked> Filter by Waco
           </label>
+        </div>
+        <div class="filter-group">
+          <label for="wacoBoundarySelect">Waco Boundary:</label>
+          <select id="wacoBoundarySelect">
+            <option value="none">None</option>
+            <option value="city_limits">Simplified City Limits</option>
+            <option value="less_goofy">Precise but Less Goofy Lookin' Boundary</option>
+            <option value="goofy">Precise (Goofy Lookin') Boundary</option>
+          </select>
         </div>
         <div class="filter-group">
           <label for="startDate">Start Date:</label>
@@ -110,12 +127,9 @@
       </section>
     </main>
   </div>
-
-  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
-  <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+  
   <script src="/static/js/map.js"></script>
-
+  
   <!-- Audio Player -->
   <audio id="audioPlayer" autoplay controls>
     <source id="audioSource" src="/static/hypesong.mp3" type="audio/mpeg">

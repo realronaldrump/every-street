@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 from bouncie_api import BouncieAPI
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
+from shapely.geometry import Polygon, LineString # Import Shapely
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -82,12 +83,29 @@ def index():
 @app.route("/historical_data")
 def get_historical_data():
     start_date = request.args.get("startDate", "2020-01-01")
-    end_date = request.args.get("endDate", datetime.now().strftime("%Y-%m-%d"))
-    filter_waco = request.args.get("filterWaco", "false").lower() == "true"
+    end_date = request.args.get("endDate")
 
-    filtered_features = geojson_handler.filter_geojson_features(
-        start_date, end_date, filter_waco
-    )
+    # Handle empty endDate
+    if not end_date:  # If end_date is empty
+        end_date = datetime.now().strftime("%Y-%m-%d")  # Set it to current date
+    filter_waco = request.args.get("filterWaco", "false").lower() == "true"
+    waco_boundary = request.args.get("wacoBoundary", "city_limits")  # Get boundary type
+
+    # Handle the case where no boundary is selected
+    if waco_boundary == "none":
+        filtered_features = geojson_handler.filter_geojson_features(
+            start_date, end_date, False, None  # filter_waco is False, no waco_limits
+        )
+    else:
+        # Load the selected Waco boundary and filter
+        with open(f"static/{waco_boundary}.geojson") as f: 
+            waco_limits_data = json.load(f)
+            waco_limits = waco_limits_data["features"][0]["geometry"]["coordinates"][0]
+
+        filtered_features = geojson_handler.filter_geojson_features(
+            start_date, end_date, filter_waco, waco_limits
+        )
+
     return jsonify({"type": "FeatureCollection", "features": filtered_features})
 
 # Route to get live data
@@ -155,7 +173,7 @@ if __name__ == "__main__":
     try:
         loop.create_task(periodic_data_update())
         socketio.run(
-            app, debug=False, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)),
+            app, debug=os.environ.get("DEBUG"), host="0.0.0.0", port=int(os.environ.get("PORT", 8080)),
             use_reloader=False
         )
     finally:

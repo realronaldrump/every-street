@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 import aiohttp
-from shapely.geometry import Point, Polygon
+from shapely.geometry import Polygon, LineString, MultiLineString
 
 from bouncie_api import BouncieAPI
 from github_updater import GitHubUpdater
@@ -36,7 +36,7 @@ class GeoJSONHandler:
             )
             await self.update_historical_data(fetch_all=True)
 
-    def filter_geojson_features(self, start_date, end_date, filter_waco):
+    def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits):
         start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(
             tzinfo=timezone.utc
         )
@@ -46,11 +46,6 @@ class GeoJSONHandler:
         end_datetime += timedelta(days=1) - timedelta(seconds=1)
 
         filtered_features = []
-        waco_limits = None
-
-        if filter_waco:
-            with open("static/waco_city_limits.geojson") as f:
-                waco_limits = json.load(f)["features"][0]["geometry"]["coordinates"][0]
 
         logging.info(
             f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}"
@@ -60,36 +55,54 @@ class GeoJSONHandler:
             timestamp = feature["properties"].get("timestamp")
             if timestamp is not None:
                 route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-                print(
-                    f"Feature Timestamp: {route_datetime}, Start: {start_datetime}, End: {end_datetime}"
-                )
                 if start_datetime <= route_datetime <= end_datetime:
                     if filter_waco:
-                        if self.is_route_in_waco(feature, waco_limits):
-                            filtered_features.append(feature)
-                            logging.debug(
-                                "Feature included (within Waco)"
-                            )  # Debugging inclusion
+                        # Clip the route to the Waco boundary
+                        clipped_route = self.clip_route_to_boundary(feature, waco_limits)
+
+                        if clipped_route:
+                            # If there are segments within the boundary, add them
+                            filtered_features.append(clipped_route)
+                            logging.debug("Feature clipped and included")
                         else:
-                            logging.debug(
-                                "Feature excluded (outside Waco)"
-                            )  # Debugging exclusion
+                            logging.debug("Feature completely outside Waco, excluded")
                     else:
                         filtered_features.append(feature)
-                        logging.debug(
-                            "Feature included (Waco filter disabled)"
-                        )  # Debugging inclusion
+                        logging.debug("Feature included (Waco filter disabled)")
 
         logging.info(f"Filtered {len(filtered_features)} features")
         return filtered_features
 
-    def is_route_in_waco(self, feature, waco_limits):
+    def clip_route_to_boundary(self, feature, waco_limits):
         waco_polygon = Polygon(waco_limits)
-        for coord in feature["geometry"]["coordinates"]:
-            point = Point(coord[0], coord[1])
-            if not waco_polygon.contains(point):
-                return False
-        return True
+        route_line = LineString(feature["geometry"]["coordinates"])
+
+        # Perform the difference operation
+        clipped_geometry = route_line.difference(waco_polygon)
+
+        if clipped_geometry.is_empty:
+            return None  # Route is entirely outside the boundary
+
+        # Create a new GeoJSON feature with the clipped geometry
+        if isinstance(clipped_geometry, LineString):
+            # Single line segment
+            return {
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": list(clipped_geometry.coords)},
+                "properties": feature["properties"]
+            }
+        elif isinstance(clipped_geometry, MultiLineString):
+            # Multiple line segments
+            return {
+                "type": "Feature",
+                "geometry": {
+                    "type": "MultiLineString",
+                    "coordinates": [list(line.coords) for line in clipped_geometry.geoms]
+                },
+                "properties": feature["properties"]
+            }
+        else:
+            return None  # Unexpected geometry type
 
     async def update_historical_data(self, fetch_all=False):
         try:
