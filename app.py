@@ -3,6 +3,7 @@ import asyncio
 import logging
 import json
 from datetime import datetime, timezone
+from json import JSONDecodeError 
 
 from flask import Flask, render_template, jsonify, request, Response
 from flask_socketio import SocketIO
@@ -85,28 +86,35 @@ def get_historical_data():
     start_date = request.args.get("startDate", "2020-01-01")
     end_date = request.args.get("endDate")
 
-    # Handle empty endDate
-    if not end_date:  # If end_date is empty
-        end_date = datetime.now().strftime("%Y-%m-%d")  # Set it to current date
+    if not end_date:
+        end_date = datetime.now().strftime("%Y-%m-%d")
+
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
-    waco_boundary = request.args.get("wacoBoundary", "city_limits")  # Get boundary type
+    waco_boundary = request.args.get("wacoBoundary", "city_limits")
 
-    # Handle the case where no boundary is selected
-    if waco_boundary == "none":
-        filtered_features = geojson_handler.filter_geojson_features(
-            start_date, end_date, False, None  # filter_waco is False, no waco_limits
-        )
-    else:
-        # Load the selected Waco boundary and filter
-        with open(f"static/{waco_boundary}.geojson") as f: 
-            waco_limits_data = json.load(f)
-            waco_limits = waco_limits_data["features"][0]["geometry"]["coordinates"][0]
+    try:
+        if waco_boundary == "none":
+            filtered_features = geojson_handler.filter_geojson_features(
+                start_date, end_date, False, None
+            )
+        else:
+            with open(f"static/{waco_boundary}.geojson") as f:
+                waco_limits_data = json.load(f)
+                waco_limits = waco_limits_data["features"][0]["geometry"]["coordinates"][0]
 
-        filtered_features = geojson_handler.filter_geojson_features(
-            start_date, end_date, filter_waco, waco_limits
-        )
+            filtered_features = geojson_handler.filter_geojson_features(
+                start_date, end_date, filter_waco, waco_limits
+            )
 
-    return jsonify({"type": "FeatureCollection", "features": filtered_features})
+        return jsonify({"type": "FeatureCollection", "features": filtered_features})
+
+    except (FileNotFoundError, JSONDecodeError) as e:
+        logging.error(f"Error loading or parsing Waco boundary: {e}")
+        return jsonify({"error": "Error loading Waco boundary"}), 500
+
+    except Exception as e:
+        logging.error(f"Error filtering historical data: {e}")
+        return jsonify({"error": "Error filtering historical data"}), 500
 
 # Route to get live data
 @app.route("/live_data")

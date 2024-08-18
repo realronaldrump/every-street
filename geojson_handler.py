@@ -74,35 +74,36 @@ class GeoJSONHandler:
         return filtered_features
 
     def clip_route_to_boundary(self, feature, waco_limits):
-        waco_polygon = Polygon(waco_limits)
-        route_line = LineString(feature["geometry"]["coordinates"])
+        try:
+            waco_polygon = Polygon(waco_limits)
+            route_line = LineString(feature["geometry"]["coordinates"])
 
-        # Perform the difference operation
-        clipped_geometry = route_line.difference(waco_polygon)
+            clipped_geometry = route_line.difference(waco_polygon)
 
-        if clipped_geometry.is_empty:
-            return None  # Route is entirely outside the boundary
+            if clipped_geometry.is_empty:
+                return None
 
-        # Create a new GeoJSON feature with the clipped geometry
-        if isinstance(clipped_geometry, LineString):
-            # Single line segment
-            return {
-                "type": "Feature",
-                "geometry": {"type": "LineString", "coordinates": list(clipped_geometry.coords)},
-                "properties": feature["properties"]
-            }
-        elif isinstance(clipped_geometry, MultiLineString):
-            # Multiple line segments
-            return {
-                "type": "Feature",
-                "geometry": {
-                    "type": "MultiLineString",
-                    "coordinates": [list(line.coords) for line in clipped_geometry.geoms]
-                },
-                "properties": feature["properties"]
-            }
-        else:
-            return None  # Unexpected geometry type
+            if isinstance(clipped_geometry, LineString):
+                return {
+                    "type": "Feature",
+                    "geometry": {"type": "LineString", "coordinates": list(clipped_geometry.coords)},
+                    "properties": feature["properties"]
+                }
+            elif isinstance(clipped_geometry, MultiLineString):
+                return {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "MultiLineString",
+                        "coordinates": [list(line.coords) for line in clipped_geometry.geoms]
+                    },
+                    "properties": feature["properties"]
+                }
+            else:
+                return None
+
+        except Exception as e:
+            logging.error(f"Error clipping route to boundary: {e}")
+            return None
 
     async def update_historical_data(self, fetch_all=False):
         try:
