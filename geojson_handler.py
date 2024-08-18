@@ -91,11 +91,11 @@ class GeoJSONHandler:
             if not all(isinstance(sublist, list) for sublist in waco_limits):
                 raise ValueError("waco_limits must be a list of lists representing coordinates.")
 
-            # Flatten the waco_limits list to a list of tuples (handling extra nesting if necessary)
+            # Flatten the waco_limits list to a list of tuples (handling extra nesting)
             flattened_waco_limits = [
-                (coord[0], coord[1]) 
-                for sublist in waco_limits 
-                for coord in sublist
+                (coord[0], coord[1])
+                for sublist in waco_limits
+                for coord in (sublist[0] if isinstance(sublist[0], list) else sublist) # Handle extra nesting
                 if isinstance(coord, list) and len(coord) == 2
             ]
 
@@ -247,6 +247,10 @@ class GeoJSONHandler:
     def _calculate_bounding_box(self, feature):
         """Helper function to calculate the bounding box of a feature."""
         coords = feature['geometry']['coordinates']
+
+        # Handle cases where coords is not a simple list of lists
+        if not all(isinstance(sublist, list) and len(sublist) == 2 for sublist in coords):
+            coords = [coord for sublist in coords for coord in sublist if isinstance(coord, list) and len(coord) == 2]
 
         # Initialize min and max values with the first coordinate
         min_lon = coords[0][0]
