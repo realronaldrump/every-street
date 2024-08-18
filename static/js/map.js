@@ -13,7 +13,7 @@ let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBt
 async function loadWacoLimits(boundaryType) {
   try {
     const filenames = {
-      city_limits: '/static/waco_city_limits.geojson',
+      city_limits: '/static/city_limits.geojson',
       less_goofy: '/static/less-goofy-waco-boundary.geojson',
       goofy: '/static/goofy-waco-boundary.geojson'
     };

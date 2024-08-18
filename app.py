@@ -98,13 +98,24 @@ def get_historical_data():
                 start_date, end_date, False, None
             )
         else:
-            with open(f"static/{waco_boundary}.geojson") as f:
-                waco_limits_data = json.load(f)
-                waco_limits = waco_limits_data["features"][0]["geometry"]["coordinates"][0]
+            # Correctly construct the filename using a dictionary
+            filenames = {
+                "city_limits": "city_limits.geojson",
+                "less_goofy": "less-goofy-waco-boundary.geojson",
+                "goofy": "goofy-waco-boundary.geojson"
+            }
+            filename = filenames.get(waco_boundary)
+            if filename:
+                with open(f"static/{filename}") as f:
+                    waco_limits_data = json.load(f)
+                    waco_limits = waco_limits_data["features"][0]["geometry"]["coordinates"][0]
 
-            filtered_features = geojson_handler.filter_geojson_features(
-                start_date, end_date, filter_waco, waco_limits
-            )
+                filtered_features = geojson_handler.filter_geojson_features(
+                    start_date, end_date, filter_waco, waco_limits
+                )
+            else:
+                logging.error(f"Invalid wacoBoundary value: {waco_boundary}")
+                return jsonify({"error": "Invalid Waco boundary"}), 500
 
         return jsonify({"type": "FeatureCollection", "features": filtered_features})
 
@@ -115,7 +126,6 @@ def get_historical_data():
     except Exception as e:
         logging.error(f"Error filtering historical data: {e}")
         return jsonify({"error": "Error filtering historical data"}), 500
-
 # Route to get live data
 @app.route("/live_data")
 def get_live_data():

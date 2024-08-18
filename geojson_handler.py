@@ -75,8 +75,42 @@ class GeoJSONHandler:
 
     def clip_route_to_boundary(self, feature, waco_limits):
         try:
-            waco_polygon = Polygon(waco_limits)
-            route_line = LineString(feature["geometry"]["coordinates"])
+            # Check that waco_limits is a list of lists
+            if not all(isinstance(sublist, list) for sublist in waco_limits):
+                raise ValueError("waco_limits must be a list of lists representing coordinates.")
+
+            # Flatten the waco_limits list to a list of tuples (handling extra nesting if necessary)
+            flattened_waco_limits = [
+                (coord[0], coord[1]) 
+                for sublist in waco_limits 
+                for coord in sublist
+                if isinstance(coord, list) and len(coord) == 2
+            ]
+
+            # Ensure that the flattened list has more than one point
+            if len(flattened_waco_limits) <= 1:
+                raise ValueError(f"waco_limits invalid: {flattened_waco_limits}")
+
+            logging.debug(f"Flattened Waco Limits: {flattened_waco_limits}")
+
+            # Apply a small buffer to resolve topology issues
+            waco_polygon = Polygon(flattened_waco_limits).buffer(0.001)
+
+            # Extract and validate the route coordinates
+            route_coords = feature["geometry"].get("coordinates", [])
+            
+            # Handle single-point routes
+            if len(route_coords) == 1:
+                logging.warning(f"Single-point route encountered, skipping: {route_coords}")
+                return None  # Skip single-point routes
+
+            logging.debug(f"Route Coordinates: {route_coords}")
+
+            route_line = LineString(route_coords)
+
+            # Ensure that the route_line has more than one point
+            if len(route_line.coords) <= 1:
+                raise ValueError("The route line must contain more than one valid coordinate pair.")
 
             clipped_geometry = route_line.difference(waco_polygon)
 
@@ -103,6 +137,7 @@ class GeoJSONHandler:
 
         except Exception as e:
             logging.error(f"Error clipping route to boundary: {e}")
+            logging.debug(f"Feature: {feature}")
             return None
 
     async def update_historical_data(self, fetch_all=False):
@@ -181,7 +216,8 @@ class GeoJSONHandler:
                         lat, lon, _, _, timestamp, _ = point
                         coordinates.append([lon, lat])
 
-            if coordinates:
+            # Check if coordinates list has more than one point
+            if len(coordinates) > 1:
                 feature = {
                     "type": "Feature",
                     "geometry": {"type": "LineString", "coordinates": coordinates},
