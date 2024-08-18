@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import aiohttp
 from shapely.geometry import Polygon, LineString, MultiLineString
+from rtree import index  # Import the rtree library
 
 from bouncie_api import BouncieAPI
 from github_updater import GitHubUpdater
@@ -18,6 +19,7 @@ class GeoJSONHandler:
         self.bouncie_api = BouncieAPI()
         self.github_updater = GitHubUpdater()
         self.historical_geojson_features = []
+        self.idx = None  # Initialize the spatial index
 
     async def load_historical_data(self):
         if self.historical_geojson_features:
@@ -30,6 +32,13 @@ class GeoJSONHandler:
                 logging.info(
                     f"Loaded {len(self.historical_geojson_features)} features from historical_data.geojson"
                 )
+
+                # Create the spatial index
+                self.idx = index.Index()
+                for i, feature in enumerate(self.historical_geojson_features):
+                    bbox = self._calculate_bounding_box(feature)
+                    self.idx.insert(i, bbox)
+
         except FileNotFoundError:
             logging.info(
                 "No existing GeoJSON file found. Fetching historical data from Bouncie."
@@ -51,24 +60,27 @@ class GeoJSONHandler:
             f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}"
         )
 
-        for feature in self.historical_geojson_features:
-            timestamp = feature["properties"].get("timestamp")
-            if timestamp is not None:
-                route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-                if start_datetime <= route_datetime <= end_datetime:
-                    if filter_waco:
-                        # Clip the route to the Waco boundary
-                        clipped_route = self.clip_route_to_boundary(feature, waco_limits)
+        if filter_waco and waco_limits and self.idx:
+            waco_bbox = self._calculate_bounding_box({"geometry": {"coordinates": waco_limits}})
+            intersecting_feature_ids = list(self.idx.intersection(waco_bbox))
 
+            for i in intersecting_feature_ids:
+                feature = self.historical_geojson_features[i]
+                timestamp = feature["properties"].get("timestamp")
+                if timestamp is not None:
+                    route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
+                    if start_datetime <= route_datetime <= end_datetime:
+                        clipped_route = self.clip_route_to_boundary(feature, waco_limits)
                         if clipped_route:
-                            # If there are segments within the boundary, add them
                             filtered_features.append(clipped_route)
-                            logging.debug("Feature clipped and included")
-                        else:
-                            logging.debug("Feature completely outside Waco, excluded")
-                    else:
+
+        else:
+            for feature in self.historical_geojson_features:
+                timestamp = feature["properties"].get("timestamp")
+                if timestamp is not None:
+                    route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
+                    if start_datetime <= route_datetime <= end_datetime:
                         filtered_features.append(feature)
-                        logging.debug("Feature included (Waco filter disabled)")
 
         logging.info(f"Filtered {len(filtered_features)} features")
         return filtered_features
@@ -199,6 +211,11 @@ class GeoJSONHandler:
 
                 self.github_updater.push_changes()
 
+                # Update the spatial index after adding new features
+                for i, feature in enumerate(new_features):
+                    bbox = self._calculate_bounding_box(feature) 
+                    self.idx.insert(len(self.historical_geojson_features) - len(new_features) + i, bbox)
+
         except Exception as e:
             logging.error(f"An error occurred during historical data update: {e}")
 
@@ -227,3 +244,21 @@ class GeoJSONHandler:
 
         logging.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
+    def _calculate_bounding_box(self, feature):
+        """Helper function to calculate the bounding box of a feature."""
+        coords = feature['geometry']['coordinates']
+
+        # Initialize min and max values with the first coordinate
+        min_lon = coords[0][0]
+        min_lat = coords[0][1]
+        max_lon = coords[0][0]
+        max_lat = coords[0][1]
+
+        # Iterate through all coordinates to find the actual min and max values
+        for lon, lat in coords:
+            min_lon = min(min_lon, lon)
+            max_lon = max(max_lon, lon)
+            min_lat = min(min_lat, lat)
+            max_lat = max(max_lat, lat)
+
+        return (min_lon, min_lat, max_lon, max_lat)
