@@ -125,12 +125,6 @@ async function displayHistoricalData() {
       onEachFeature: addRoutePopup
     }).addTo(map);
 
-    // if (historicalDataLayer.getBounds().isValid()) {
-    //   map.fitBounds(historicalDataLayer.getBounds());
-    // } else {
-    //   map.setView([31.5493, -97.1117], 13); // Default to Waco, TX
-    // }
-
   } catch (error) {
     console.error('Error displaying historical data:', error);
   }
@@ -322,6 +316,44 @@ function initializeMap() {
   });
 }
 
+// Function to filter historical data by a drawn polygon
+function filterHistoricalDataByPolygon(polygon) {
+  if (!historicalDataLayer) return;
+
+  const filteredFeatures = historicalDataLayer.getLayers().filter(layer => {
+    const routeGeoJSON = layer.toGeoJSON();
+    if (routeGeoJSON.geometry.type === 'LineString') {
+      return turf.booleanCrosses(polygon.toGeoJSON(), routeGeoJSON) ||
+             turf.booleanWithin(routeGeoJSON, polygon.toGeoJSON());
+    } else if (routeGeoJSON.geometry.type === 'MultiLineString') {
+      return routeGeoJSON.geometry.coordinates.some(segment =>
+        turf.booleanCrosses(polygon.toGeoJSON(), turf.lineString(segment)) ||
+        turf.booleanWithin(turf.lineString(segment), polygon.toGeoJSON())
+      );
+    }
+    return false;
+  });
+
+  // Create a new GeoJSON layer with the filtered features
+  const filteredData = {
+    type: 'FeatureCollection',
+    features: filteredFeatures.map(layer => layer.toGeoJSON())
+  };
+
+  // Replace the existing historical data layer with the filtered one
+  map.removeLayer(historicalDataLayer);
+  historicalDataLayer = L.geoJSON(filteredData, {
+    style: { color: 'blue', weight: 2, opacity: 0.25 },
+    onEachFeature: addRoutePopup
+  }).addTo(map);
+}
+
+// Function to clear drawn shapes
+function clearDrawnShapes() {
+  drawnItems.clearLayers();
+  displayHistoricalData(); // Re-display all historical data
+}
+
 // Initialize Socket.IO for real-time updates
 function initializeSocketIO() {
   const socket = io();
@@ -398,6 +430,25 @@ function filterRoutesBy(period) {
   startDateInput.value = startDate.toISOString().slice(0, 10);
   endDateInput.value = now.toISOString().slice(0, 10);
   displayHistoricalData(); // Update the map with the new date range
+}
+
+
+// Function to export data to GPX
+function exportToGPX() {
+  const startDate = startDateInput.value;
+  const endDate = endDateInput.value;
+  const filterWaco = filterWacoCheckbox.checked;
+  const wacoBoundary = wacoBoundarySelect.value;
+
+  const url = `/export_gpx?startDate=${startDate}&endDate=${endDate}&filterWaco=${filterWaco}&wacoBoundary=${wacoBoundary}`;
+
+  // Create a temporary link element to trigger the download
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'export.gpx';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 // DOMContentLoaded event listener
