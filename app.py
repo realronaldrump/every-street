@@ -34,7 +34,6 @@ asyncio.run(geojson_handler.load_historical_data())
 # --- Live Route Data Handling ---
 LIVE_ROUTE_DATA_FILE = "live_route_data.json"
 
-
 def load_live_route_data():
     try:
         with open(LIVE_ROUTE_DATA_FILE, "r") as f:
@@ -42,14 +41,11 @@ def load_live_route_data():
     except FileNotFoundError:
         return {"type": "FeatureCollection", "features": []}
 
-
 def save_live_route_data(data):
     with open(LIVE_ROUTE_DATA_FILE, "w") as f:
         json.dump(data, f)
 
-
 live_route_data = load_live_route_data()
-
 
 @app.route("/live_route", methods=["GET", "POST"])
 def live_route():
