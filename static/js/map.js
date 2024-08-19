@@ -125,6 +125,10 @@ async function displayHistoricalData() {
       onEachFeature: addRoutePopup
     }).addTo(map);
 
+    // Update total historical distance
+    const totalDistance = calculateTotalDistance(data.features);
+    document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
+
   } catch (error) {
     console.error('Error displaying historical data:', error);
   }
@@ -364,6 +368,9 @@ function initializeSocketIO() {
 
 // Initialize the application
 async function initializeApp() {
+  // Set endDateInput to today's date
+  endDateInput.value = new Date().toISOString().slice(0, 10);
+
   await loadWacoLimits(selectedWacoBoundary);
   await displayHistoricalData();
   await loadLiveRouteData();
