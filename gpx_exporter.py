@@ -7,12 +7,19 @@ class GPXExporter:
     def __init__(self):
         self.geojson_handler = GeoJSONHandler()
 
-    def export_to_gpx(self, start_date, end_date, filter_waco):
+    def export_to_gpx(self, start_date, end_date, filter_waco, waco_boundary):
+        waco_limits = None
+        if filter_waco:
+            waco_limits = self.geojson_handler.load_waco_boundary(waco_boundary)
+
         filtered_features = self.geojson_handler.filter_geojson_features(
-            start_date, end_date, filter_waco
+            start_date, end_date, filter_waco, waco_limits
         )
-        print("Number of filtered features:", len(filtered_features))  # Add this line for debugging
-        print("First feature (if any):", filtered_features[0] if filtered_features else None)  # Add this line
+        print("Number of filtered features:", len(filtered_features))
+        print(
+            "First feature (if any):",
+            filtered_features[0] if filtered_features else None,
+        )
         gpx = etree.Element("gpx", version="1.1", creator="EveryStreetApp")
         for feature in filtered_features:
             trk = etree.SubElement(gpx, "trk")
@@ -23,7 +30,9 @@ class GPXExporter:
                 )
                 time = etree.SubElement(trkpt, "time")
                 time.text = (
-                    datetime.utcfromtimestamp(feature["properties"]["timestamp"]).isoformat()
+                    datetime.utcfromtimestamp(
+                        feature["properties"]["timestamp"]
+                    ).isoformat()
                     + "Z"
                 )
 

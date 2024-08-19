@@ -19,14 +19,8 @@ async function loadWacoLimits(boundaryType) {
     return; // Exit if no filter is applied
   }
 
-  const filenames = {
-    city_limits: '/static/city_limits.geojson',
-    less_goofy: '/static/less-goofy-waco-boundary.geojson',
-    goofy: '/static/goofy-waco-boundary.geojson'
-  };
-
   try {
-    const response = await fetch(filenames[boundaryType]);
+    const response = await fetch(`/static/${boundaryType}.geojson`);
     const data = await response.json();
 
     if (wacoLimits) {
@@ -52,6 +46,9 @@ function clearLiveRoute() {
     map.removeLayer(liveMarker);
     liveMarker = null;
   }
+
+  // Clear playback route as well
+  stopPlayback(); 
 }
 
 // Function to load live route data
@@ -59,31 +56,25 @@ async function loadLiveRouteData() {
   try {
     const response = await fetch('/live_route');
     const data = await response.json();
-    updateLiveData(data);
+
+    if (data.features.length > 0) {
+      const coordinates = data.features.map(feature => feature.geometry.coordinates);
+      liveRoutePolyline = L.polyline(coordinates.map(coord => [coord[1], coord[0]]), {
+        color: '#007bff',
+        weight: 4
+      }).addTo(map);
+
+      const lastCoord = coordinates[coordinates.length - 1];
+      liveMarker = L.marker([lastCoord[1], lastCoord[0]], {
+        icon: L.divIcon({
+          className: 'blinking-marker',
+          iconSize: [20, 20],
+          html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
+        })
+      }).addTo(map);
+    }
   } catch (error) {
     console.error('Error loading live route data:', error);
-  }
-}
-
-// Function to send live data to the server
-async function sendLiveDataToServer(data) {
-  try {
-    const response = await fetch('/live_route', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(data)
-    });
-
-    if (!response.ok) {
-      throw new Error('Network response was not ok');
-    }
-
-    const responseData = await response.json();
-    console.log(responseData.message);
-  } catch (error) {
-    console.error('Error sending live data to server:', error);
   }
 }
 
@@ -109,18 +100,12 @@ function updateLiveData(data) {
       })
     }).addTo(map);
   } else {
-    const currentLatLng = liveMarker.getLatLng();
+    liveMarker.setLatLng(latLng);
 
-    if (currentLatLng.lat !== latLng[0] || currentLatLng.lng !== latLng[1]) {
-      liveMarker.setLatLng(latLng);
-
-      if (!liveRoutePolyline) {
-        liveRoutePolyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
-      }
-      liveRoutePolyline.addLatLng(latLng);
-
-      sendLiveDataToServer(data);
+    if (!liveRoutePolyline) {
+      liveRoutePolyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
     }
+    liveRoutePolyline.addLatLng(latLng);
   }
 }
 
@@ -128,93 +113,52 @@ function updateLiveData(data) {
 async function displayHistoricalData() {
   try {
     const wacoBoundary = wacoBoundarySelect.value;
-
-    if (!filterWacoCheckbox.checked) {
-      if (historicalDataLayer) {
-        map.removeLayer(historicalDataLayer);
-        historicalDataLayer = null;
-      }
-      if (wacoLimits) {
-        map.removeLayer(wacoLimits);
-        wacoLimits = null;
-      }
-      return; // Exit if no filter is applied
-    }
-
     const response = await fetch(`/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}`);
     const data = await response.json();
-
-    if (!data || !data.features || data.features.length === 0) {
-      console.error("Invalid or empty GeoJSON data.");
-      return;
-    }
-
-    const startDate = new Date(startDateInput.value).getTime() / 1000;
-    const endDate = endDateInput.value ? new Date(endDateInput.value).getTime() / 1000 : Infinity;
-
-    let filteredFeatures = data.features.filter(feature => {
-      const timestamp = feature.properties.timestamp;
-      return timestamp >= startDate && timestamp <= endDate;
-    });
-
-    if (filterWacoCheckbox.checked) {
-      filteredFeatures = filteredFeatures.map(feature => {
-        const clippedFeature = clipRouteToWacoBoundary(feature);
-        return clippedFeature ? clippedFeature : null;
-      }).filter(feature => feature !== null);
-    }
-
-    const filteredGeoJSON = {
-      type: "FeatureCollection",
-      features: filteredFeatures
-    };
-
-    console.log('Filtered GeoJSON:', filteredGeoJSON);
-
-    const totalDistance = calculateTotalDistance(filteredFeatures);
-    document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
 
     if (historicalDataLayer) {
       map.removeLayer(historicalDataLayer);
     }
 
-    if (filteredFeatures.length === 0) {
-      console.log('No data available for the selected filter');
-      return;
-    }
-
-    historicalDataLayer = L.geoJSON(filteredGeoJSON, {
-      style: {
-        color: 'blue',
-        weight: 2,
-        opacity: 0.25
-      },
+    historicalDataLayer = L.geoJSON(data, {
+      style: { color: 'blue', weight: 2, opacity: 0.25 },
       onEachFeature: addRoutePopup
     }).addTo(map);
 
-    const layerBounds = historicalDataLayer.getBounds();
-    if (layerBounds.isValid()) {
-      console.log('Fitting bounds to:', layerBounds);
-      map.fitBounds(layerBounds, { padding: [50, 50] });
-    } else {
-      console.log('Layer bounds are invalid, centering on a default location');
-      map.setView([31.5493, -97.1117], 13); // Default to Waco, TX
-    }
+    // if (historicalDataLayer.getBounds().isValid()) {
+    //   map.fitBounds(historicalDataLayer.getBounds());
+    // } else {
+    //   map.setView([31.5493, -97.1117], 13); // Default to Waco, TX
+    // }
 
   } catch (error) {
     console.error('Error displaying historical data:', error);
-    map.setView([31.5493, -97.1117], 13); // Default to Waco, TX in case of error
   }
 }
 
 // Function to update live data and metrics
 async function updateLiveDataAndMetrics() {
   try {
-    const response = await fetch('/live_data');
-    const data = await response.json();
-    updateLiveData(data);
+    const [liveDataResponse, metricsResponse] = await Promise.all([
+      fetch('/live_data'),
+      fetch('/trip_metrics')
+    ]);
+
+    const liveData = await liveDataResponse.json();
+    if (!liveData.error) {
+      updateLiveData(liveData);
+    } else {
+      console.error('Error fetching live data:', liveData.error);
+    }
+
+    const metrics = await metricsResponse.json();
+    document.getElementById('totalDistance').textContent = `${metrics.total_distance} miles`;
+    document.getElementById('totalTime').textContent = metrics.total_time;
+    document.getElementById('maxSpeed').textContent = `${metrics.max_speed} mph`;
+    document.getElementById('startTime').textContent = metrics.start_time;
+    document.getElementById('endTime').textContent = metrics.end_time;
   } catch (error) {
-    console.error('Error updating live data:', error);
+    console.error('Error updating live data and metrics:', error);
   }
 }
 
@@ -259,90 +203,6 @@ function calculateTotalDistance(features) {
       return routeTotal + prevLatLng.distanceTo(currLatLng) * 0.000621371; // Convert meters to miles
     }, 0);
   }, 0);
-}
-
-// Function to clip routes to Waco boundary
-function clipRouteToWacoBoundary(feature) {
-  if (!wacoLimits || !wacoLimits.getLayers || wacoLimits.getLayers().length === 0) {
-    console.error('Waco limits not defined or empty');
-    return null;
-  }
-
-  const wacoLayer = wacoLimits.getLayers()[0];
-  if (!wacoLayer.feature || !wacoLayer.feature.geometry) {
-    console.error('Invalid Waco limits geometry: Missing geometry property');
-    return null;
-  }
-
-  let coordinates;
-  if (wacoLayer.feature.geometry.type === 'Polygon') {
-    coordinates = wacoLayer.feature.geometry.coordinates;
-  } else if (wacoLayer.feature.geometry.type === 'MultiPolygon') {
-    coordinates = wacoLayer.feature.geometry.coordinates.flat(1);
-  } else {
-    console.error('Invalid geometry type for Waco limits');
-    return null;
-  }
-
-  const routeCoords = feature.geometry.coordinates.map(coord => {
-    if (Array.isArray(coord) && coord.length >= 2 && typeof coord[0] === 'number' && typeof coord[1] === 'number') {
-      return [coord[0], coord[1]];
-    } else {
-      console.error('Invalid coordinate found in route:', coord);
-      return null;
-    }
-  }).filter(coord => coord !== null);
-
-  if (routeCoords.length === 0) {
-    console.error('No valid route coordinates after filtering');
-    return null;
-  }
-
-  const routeLine = turf.lineString(routeCoords);
-  const wacoPolygon = turf.polygon(coordinates);
-
-  try {
-    const split = turf.lineSplit(routeLine, wacoPolygon);
-
-    if (split.features.length > 0) {
-      const clippedFeatures = split.features.filter(segment => {
-        if (segment.geometry.type !== 'LineString') {
-          console.error('Invalid segment type during clipping:', segment.geometry.type);
-          return false;
-        }
-        return turf.booleanWithin(segment, wacoPolygon) || turf.booleanOverlap(segment, wacoPolygon);
-      });
-
-      if (clippedFeatures.length > 0) {
-        const mergedCoords = clippedFeatures.reduce((acc, segment) => {
-          return acc.concat(segment.geometry.coordinates);
-        }, []);
-
-        const uniqueCoords = mergedCoords.filter((coord, index, self) => {
-          return index === 0 || !arraysEqual(coord, self[index - 1]);
-        });
-
-        return turf.lineString(uniqueCoords);
-      }
-    } else if (turf.booleanWithin(routeLine, wacoPolygon)) {
-      return routeLine;
-    } else {
-      console.log('Route does not intersect Waco boundary and is not within Waco');
-      return null;
-    }
-  } catch (error) {
-    console.error('Error during clipping operation:', error);
-    return null;
-  }
-}
-
-// Function to compare arrays for equality
-function arraysEqual(arr1, arr2) {
-  if (arr1.length !== arr2.length) return false;
-  for (let i = 0; i < arr1.length; i++) {
-    if (arr1[i] !== arr2[i]) return false;
-  }
-  return true;
 }
 
 // Function to start route playback
@@ -400,9 +260,11 @@ function stopPlayback() {
   }
   if (playbackPolyline) {
     map.removeLayer(playbackPolyline);
+    playbackPolyline = null; // Reset the polyline
   }
   if (playbackMarker) {
     map.removeLayer(playbackMarker);
+    playbackMarker = null; // Reset the marker
   }
 }
 
@@ -513,6 +375,29 @@ function setupEventListeners() {
   playPauseBtn.addEventListener('click', togglePlayPause);
   stopBtn.addEventListener('click', stopPlayback);
   playbackSpeedInput.addEventListener('input', adjustPlaybackSpeed);
+}
+
+// Function to filter routes by a specific period
+function filterRoutesBy(period) {
+  const now = new Date();
+  let startDate;
+
+  const periodMap = {
+    today: 0,
+    yesterday: -1,
+    lastWeek: -7,
+    lastMonth: -30,
+    lastYear: -365,
+    allTime: new Date(2020, 0, 1) // Assuming your data starts from 2020
+  };
+
+  startDate = periodMap[period] instanceof Date
+    ? periodMap[period]
+    : new Date(now.getFullYear(), now.getMonth(), now.getDate() + periodMap[period]);
+
+  startDateInput.value = startDate.toISOString().slice(0, 10);
+  endDateInput.value = now.toISOString().slice(0, 10);
+  displayHistoricalData(); // Update the map with the new date range
 }
 
 // DOMContentLoaded event listener
