@@ -83,7 +83,8 @@ def live_route():
 # Route to serve the index page
 @app.route("/")
 def index():
-    return render_template("index.html")
+    today = datetime.now().strftime("%Y-%m-%d")
+    return render_template("index.html", today=today)
 
 
 # Helper function to load Waco boundary
