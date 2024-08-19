@@ -78,8 +78,19 @@ class GeoJSONHandler:
 
             logging.debug(f"Flattened Waco Limits: {flattened_waco_limits}")
 
+            # Create the Waco polygon, handling potential holes
+            if len(waco_limits) > 1:
+                # If there are multiple rings, the first is the outer boundary,
+                # and the rest are holes
+                exterior_coords = waco_limits[0]
+                holes = [ring for ring in waco_limits[1:]]
+                waco_polygon = Polygon(exterior_coords, holes=holes)
+            else:
+                # If there's only one ring, it's the outer boundary
+                waco_polygon = Polygon(waco_limits[0])
+
             # Apply a small buffer to resolve topology issues
-            waco_polygon = Polygon(flattened_waco_limits).buffer(0)
+            waco_polygon = waco_polygon.buffer(0)
 
             # Extract and validate the route coordinates
             route_geometry = feature["geometry"]
