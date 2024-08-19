@@ -90,8 +90,8 @@ def index():
 def load_waco_boundary(boundary_name):
     filenames = {
         "city_limits": "city_limits.geojson",
-        "less_goofy": "less-goofy-waco-boundary.geojson",
-        "goofy": "goofy-waco-boundary.geojson",
+        "less_goofy": "less_goofy.geojson",  # Corrected filename
+        "goofy": "goofy.geojson",  # Corrected filename
     }
     filename = filenames.get(boundary_name)
     if filename:

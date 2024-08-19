@@ -26,9 +26,11 @@ class GeoJSONHandler:
         flat_coords = []
         for item in coords:
             if isinstance(item, list):
-                if isinstance(item[0], (float, int)):  # Base case: [lon, lat]
+                # Check if the item is a coordinate pair (list of two numbers)
+                if len(item) == 2 and all(isinstance(c, (float, int)) for c in item):
                     flat_coords.append(item)
-                else:  # Recursive case: nested list
+                else:
+                    # Recursively flatten nested lists
                     flat_coords.extend(self._flatten_coordinates(item))
             else:
                 logging.warning(f"Unexpected item in coordinates: {item}")
@@ -80,62 +82,69 @@ class GeoJSONHandler:
             waco_polygon = Polygon(flattened_waco_limits).buffer(0)
 
             # Extract and validate the route coordinates
-            route_coords = feature["geometry"].get("coordinates", [])
+            route_geometry = feature["geometry"]
+            route_type = route_geometry["type"]
+            route_coords = route_geometry.get("coordinates", [])
 
-            # Ensure coordinates are in (longitude, latitude) order
-            route_coords = [(coord[0], coord[1]) for coord in route_coords]
+            # Handle different geometry types
+            if route_type == "LineString":
+                # Ensure coordinates are in (longitude, latitude) order
+                route_coords = [(coord[0], coord[1]) for coord in route_coords]
 
-            # Handle single-point routes
-            if len(route_coords) == 1:
-                logging.warning(
-                    f"Single-point route encountered, skipping: {route_coords}"
-                )
-                return None  # Skip single-point routes
+                # Handle single-point routes
+                if len(route_coords) == 1:
+                    logging.warning(
+                        f"Single-point route encountered, skipping: {route_coords}"
+                    )
+                    return None  # Skip single-point routes
 
-            logging.debug(f"Route Coordinates Before Clipping: {route_coords}")
+                route_line = LineString(route_coords)
+                clipped_geometry = route_line.intersection(waco_polygon)
 
-            route_line = LineString(route_coords)
+            elif route_type == "MultiLineString":
+                clipped_lines = []
+                for line_coords in route_coords:
+                    # Ensure coordinates are in (longitude, latitude) order
+                    line_coords = [(coord[0], coord[1]) for coord in line_coords]
 
-            # Perform the clipping
-            clipped_geometry = route_line.intersection(waco_polygon)
+                    route_line = LineString(line_coords)
+                    clipped_line = route_line.intersection(waco_polygon)
 
-            logging.debug(f"Clipped Geometry Type: {type(clipped_geometry)}")
-            logging.debug(
-                f"Clipped Geometry Coordinates: {list(clipped_geometry.coords) if isinstance(clipped_geometry, LineString) else 'MultiLineString'}"
-            )
+                    # Only add valid, non-empty LineStrings
+                    if (
+                        not clipped_line.is_empty
+                        and clipped_line.is_valid
+                        and isinstance(clipped_line, LineString)
+                    ):
+                        clipped_lines.append(list(clipped_line.coords))
+
+                if clipped_lines:
+                    clipped_geometry = MultiLineString(clipped_lines)
+                else:
+                    return None  # No clipped lines
+
+            else:
+                logging.warning(f"Unsupported geometry type: {route_type}")
+                return None
 
             # Handle empty or invalid geometries
             if clipped_geometry.is_empty or not clipped_geometry.is_valid:
-                logging.debug("Clipped geometry is empty or invalid, skipping this feature.")
+                logging.debug(
+                    "Clipped geometry is empty or invalid, skipping this feature."
+                )
                 return None
 
             # Create the clipped feature
-            if isinstance(clipped_geometry, LineString):
-                return {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "LineString",
-                        "coordinates": list(clipped_geometry.coords),
-                    },
-                    "properties": feature["properties"],
-                }
-            elif isinstance(clipped_geometry, MultiLineString):
-                multi_coords = [
-                    list(line.coords) for line in clipped_geometry.geoms
-                ]
-                return {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "MultiLineString",
-                        "coordinates": multi_coords,
-                    },
-                    "properties": feature["properties"],
-                }
-            else:
-                logging.warning(
-                    f"Unhandled geometry type: {type(clipped_geometry)}"
-                )
-                return None
+            return {
+                "type": "Feature",
+                "geometry": {
+                    "type": clipped_geometry.geom_type,
+                    "coordinates": list(clipped_geometry.coords)
+                    if isinstance(clipped_geometry, LineString)
+                    else [list(line.coords) for line in clipped_geometry.geoms],
+                },
+                "properties": feature["properties"],
+            }
 
         except Exception as e:
             logging.error(f"Error clipping route to boundary: {e}")
