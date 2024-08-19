@@ -55,46 +55,42 @@ class GeoJSONHandler:
 
     def clip_route_to_boundary(self, feature, waco_limits):
         try:
-            # Check that waco_limits is a list of lists
+            # Ensure waco_limits is valid
             if not all(isinstance(sublist, list) for sublist in waco_limits):
                 raise ValueError("waco_limits must be a list of lists representing coordinates.")
-
-            # Flatten the waco_limits list to a list of tuples (handling extra nesting)
+            
+            # Flatten the waco_limits list to tuples
             flattened_waco_limits = [
                 (coord[0], coord[1])
                 for coord in self._flatten_coordinates(waco_limits)
             ]
 
-            # Ensure that the flattened list has more than one point
             if len(flattened_waco_limits) <= 1:
                 raise ValueError(f"waco_limits invalid: {flattened_waco_limits}")
 
             logging.debug(f"Flattened Waco Limits: {flattened_waco_limits}")
 
-            # Apply a small buffer to resolve topology issues
+            # Handle polygon construction
             waco_polygon = Polygon(flattened_waco_limits).buffer(0)
 
-            # Extract and validate the route coordinates
             route_coords = feature["geometry"].get("coordinates", [])
-            
-            # Handle single-point routes
-            if len(route_coords) == 1:
-                logging.warning(f"Single-point route encountered, skipping: {route_coords}")
-                return None  # Skip single-point routes
+
+            # Ensure correct handling of MultiLineString
+            if feature["geometry"]["type"] == "MultiLineString":
+                route_coords = [coord for line in route_coords for coord in line]
+
+            if len(route_coords) < 2:
+                logging.warning(f"Skipping route with insufficient points: {route_coords}")
+                return None
 
             logging.debug(f"Route Coordinates Before Clipping: {route_coords}")
 
             route_line = LineString(route_coords)
 
-            # Ensure that the route_line has more than one point
             if len(route_line.coords) <= 1:
                 raise ValueError("The route line must contain more than one valid coordinate pair.")
 
-            # Perform the clipping
             clipped_geometry = route_line.intersection(waco_polygon)
-
-            logging.debug(f"Clipped Geometry Type: {type(clipped_geometry)}")
-            logging.debug(f"Clipped Geometry Coordinates: {list(clipped_geometry.coords) if isinstance(clipped_geometry, LineString) else 'MultiLineString'}")
 
             if clipped_geometry.is_empty:
                 logging.debug("Clipped geometry is empty, skipping this feature.")
