@@ -57,21 +57,23 @@ def live_route():
     if request.method == "POST":
         new_point = request.get_json()
         new_coordinates = [new_point["longitude"], new_point["latitude"]]
+        new_timestamp = new_point["timestamp"]
 
         # Check if there is at least one feature already
         if live_route_data["features"]:
             last_feature = live_route_data["features"][-1]
             last_coordinates = last_feature["geometry"]["coordinates"]
+            last_timestamp = last_feature["properties"]["timestamp"]
 
-            # Only add the new point if the coordinates have changed
-            if new_coordinates == last_coordinates:
-                return jsonify({"message": "No movement detected, point not added"})
+            # Only add the new point if coordinates or timestamp have changed
+            if new_coordinates == last_coordinates and new_timestamp == last_timestamp:
+                return jsonify({"message": "No change detected, point not added"})
 
-        # If coordinates are different, or if this is the first point, add the new point
+        # If coordinates or timestamp are different, add the new point
         feature = {
             "type": "Feature",
             "geometry": {"type": "Point", "coordinates": new_coordinates},
-            "properties": {"timestamp": new_point["timestamp"]},
+            "properties": {"timestamp": new_timestamp},
         }
         live_route_data["features"].append(feature)
         save_live_route_data(live_route_data)
