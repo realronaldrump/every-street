@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from bouncie_api import BouncieAPI
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
-from shapely.geometry import Polygon, LineString # Import Shapely
+from shapely.geometry import Polygon, LineString
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
@@ -80,6 +80,22 @@ def live_route():
 def index():
     return render_template("index.html")
 
+# Helper function to load Waco boundary
+def load_waco_boundary(boundary_name):
+    filenames = {
+        "city_limits": "city_limits.geojson",
+        "less_goofy": "less-goofy-waco-boundary.geojson",
+        "goofy": "goofy-waco-boundary.geojson"
+    }
+    filename = filenames.get(boundary_name)
+    if filename:
+        with open(f"static/{filename}") as f:
+            waco_limits_data = json.load(f)
+            return waco_limits_data["features"][0]["geometry"]["coordinates"][0]
+    else:
+        logging.error(f"Invalid wacoBoundary value: {boundary_name}")
+        return None
+
 # Route to get filtered historical data
 @app.route("/historical_data")
 def get_historical_data():
@@ -93,39 +109,20 @@ def get_historical_data():
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
 
     try:
-        if waco_boundary == "none":
-            filtered_features = geojson_handler.filter_geojson_features(
-                start_date, end_date, False, None
-            )
-        else:
-            # Correctly construct the filename using a dictionary
-            filenames = {
-                "city_limits": "city_limits.geojson",
-                "less_goofy": "less-goofy-waco-boundary.geojson",
-                "goofy": "goofy-waco-boundary.geojson"
-            }
-            filename = filenames.get(waco_boundary)
-            if filename:
-                with open(f"static/{filename}") as f:
-                    waco_limits_data = json.load(f)
-                    waco_limits = waco_limits_data["features"][0]["geometry"]["coordinates"][0]
+        waco_limits = None
+        if waco_boundary != "none":
+            waco_limits = load_waco_boundary(waco_boundary)
 
-                filtered_features = geojson_handler.filter_geojson_features(
-                    start_date, end_date, filter_waco, waco_limits
-                )
-            else:
-                logging.error(f"Invalid wacoBoundary value: {waco_boundary}")
-                return jsonify({"error": "Invalid Waco boundary"}), 500
+        filtered_features = geojson_handler.filter_geojson_features(
+            start_date, end_date, filter_waco, waco_limits
+        )
 
         return jsonify({"type": "FeatureCollection", "features": filtered_features})
 
-    except (FileNotFoundError, JSONDecodeError) as e:
-        logging.error(f"Error loading or parsing Waco boundary: {e}")
-        return jsonify({"error": "Error loading Waco boundary"}), 500
-
     except Exception as e:
         logging.error(f"Error filtering historical data: {e}")
-        return jsonify({"error": "Error filtering historical data"}), 500
+        return jsonify({"type": "FeatureCollection", "features": []}), 500
+
 # Route to get live data
 @app.route("/live_data")
 def get_live_data():
