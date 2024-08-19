@@ -243,3 +243,42 @@
     color: var(--text-color);
     font-weight: 500;
   }
+
+  /* Styles for checkboxes */
+input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  background-color: var(--tertiary-bg);
+  border: 1px solid #444;
+  border-radius: 4px;
+  width: 1.2em;
+  height: 1.2em;
+  cursor: pointer;
+  margin-right: 0.5em;
+  box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+input[type="checkbox"]:checked {
+  background-color: var(--accent-color);
+  border-color: var(--accent-color);
+}
+
+input[type="checkbox"]:checked::before {
+  content: '\2713';
+  display: block;
+  color: var(--text-color);
+  font-size: 0.9em;
+  text-align: center;
+  line-height: 1.2em;
+}
+
+/* Styles for select dropdowns */
+select {
+  background-color: var(--tertiary-bg);
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: var(--text-color);
+  padding: 0.5rem;
+  font-size: 1rem;
+  box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.2);
+}

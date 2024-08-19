@@ -21,6 +21,107 @@ class GeoJSONHandler:
         self.historical_geojson_features = []
         self.idx = None  # Initialize the spatial index
 
+    def _flatten_coordinates(self, coords):
+        """Helper function to flatten a nested list of coordinates."""
+        flat_coords = []
+        for coord in coords:
+            if isinstance(coord[0], list):
+                flat_coords.extend(self._flatten_coordinates(coord))
+            else:
+                flat_coords.append(coord)
+        return flat_coords
+
+    def _calculate_bounding_box(self, feature):
+        """Helper function to calculate the bounding box of a feature."""
+        coords = feature['geometry']['coordinates']
+
+        # Flatten the coordinates
+        coords = self._flatten_coordinates(coords)
+
+        # Initialize min and max values with the first coordinate
+        min_lon = coords[0][0]
+        min_lat = coords[0][1]
+        max_lon = coords[0][0]
+        max_lat = coords[0][1]
+
+        # Iterate through all coordinates to find the actual min and max values
+        for lon, lat in coords:
+            min_lon = min(min_lon, lon)
+            max_lon = max(max_lon, lon)
+            min_lat = min(min_lat, lat)
+            max_lat = max(max_lat, lat)
+
+        return (min_lon, min_lat, max_lon, max_lat)
+
+    def clip_route_to_boundary(self, feature, waco_limits):
+        try:
+            # Check that waco_limits is a list of lists
+            if not all(isinstance(sublist, list) for sublist in waco_limits):
+                raise ValueError("waco_limits must be a list of lists representing coordinates.")
+
+            # Flatten the waco_limits list to a list of tuples (handling extra nesting)
+            flattened_waco_limits = [
+                (coord[0], coord[1])
+                for coord in self._flatten_coordinates(waco_limits)
+            ]
+
+            # Ensure that the flattened list has more than one point
+            if len(flattened_waco_limits) <= 1:
+                raise ValueError(f"waco_limits invalid: {flattened_waco_limits}")
+
+            logging.debug(f"Flattened Waco Limits: {flattened_waco_limits}")
+
+            # Apply a small buffer to resolve topology issues
+            waco_polygon = Polygon(flattened_waco_limits).buffer(0)
+
+            # Extract and validate the route coordinates
+            route_coords = feature["geometry"].get("coordinates", [])
+            
+            # Handle single-point routes
+            if len(route_coords) == 1:
+                logging.warning(f"Single-point route encountered, skipping: {route_coords}")
+                return None  # Skip single-point routes
+
+            logging.debug(f"Route Coordinates Before Clipping: {route_coords}")
+
+            route_line = LineString(route_coords)
+
+            # Ensure that the route_line has more than one point
+            if len(route_line.coords) <= 1:
+                raise ValueError("The route line must contain more than one valid coordinate pair.")
+
+            # Perform the clipping
+            clipped_geometry = route_line.intersection(waco_polygon)
+
+            logging.debug(f"Clipped Geometry Type: {type(clipped_geometry)}")
+            logging.debug(f"Clipped Geometry Coordinates: {list(clipped_geometry.coords) if isinstance(clipped_geometry, LineString) else 'MultiLineString'}")
+
+            if clipped_geometry.is_empty:
+                logging.debug("Clipped geometry is empty, skipping this feature.")
+                return None
+
+            if isinstance(clipped_geometry, LineString):
+                return {
+                    "type": "Feature",
+                    "geometry": {"type": "LineString", "coordinates": list(clipped_geometry.coords)},
+                    "properties": feature["properties"]
+                }
+            elif isinstance(clipped_geometry, MultiLineString):
+                multi_coords = [list(line.coords) for line in clipped_geometry.geoms]
+                return {
+                    "type": "Feature",
+                    "geometry": {"type": "MultiLineString", "coordinates": multi_coords},
+                    "properties": feature["properties"]
+                }
+            else:
+                logging.warning(f"Unhandled geometry type: {type(clipped_geometry)}")
+                return None
+
+        except Exception as e:
+            logging.error(f"Error clipping route to boundary: {e}")
+            logging.debug(f"Feature: {feature}")
+            return None
+
     async def load_historical_data(self):
         if self.historical_geojson_features:
             return  # Data already loaded
@@ -70,9 +171,15 @@ class GeoJSONHandler:
                 if timestamp is not None:
                     route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
                     if start_datetime <= route_datetime <= end_datetime:
-                        clipped_route = self.clip_route_to_boundary(feature, waco_limits)
-                        if clipped_route:
-                            filtered_features.append(clipped_route)
+                        if "clipped" not in feature["properties"]:  # Skip clipping if already clipped
+                            clipped_route = self.clip_route_to_boundary(feature, waco_limits)
+                            if clipped_route:
+                                clipped_route["properties"]["clipped"] = True
+                                filtered_features.append(clipped_route)
+                            else:
+                                continue
+                        else:
+                            filtered_features.append(feature)
 
         else:
             for feature in self.historical_geojson_features:
@@ -84,73 +191,6 @@ class GeoJSONHandler:
 
         logging.info(f"Filtered {len(filtered_features)} features")
         return filtered_features
-
-    def clip_route_to_boundary(self, feature, waco_limits):
-        try:
-            # Check that waco_limits is a list of lists
-            if not all(isinstance(sublist, list) for sublist in waco_limits):
-                raise ValueError("waco_limits must be a list of lists representing coordinates.")
-
-            # Flatten the waco_limits list to a list of tuples (handling extra nesting)
-            flattened_waco_limits = [
-                (coord[0], coord[1])
-                for sublist in waco_limits
-                for coord in (sublist[0] if isinstance(sublist[0], list) else sublist) # Handle extra nesting
-                if isinstance(coord, list) and len(coord) == 2
-            ]
-
-            # Ensure that the flattened list has more than one point
-            if len(flattened_waco_limits) <= 1:
-                raise ValueError(f"waco_limits invalid: {flattened_waco_limits}")
-
-            logging.debug(f"Flattened Waco Limits: {flattened_waco_limits}")
-
-            # Apply a small buffer to resolve topology issues
-            waco_polygon = Polygon(flattened_waco_limits).buffer(0.001)
-
-            # Extract and validate the route coordinates
-            route_coords = feature["geometry"].get("coordinates", [])
-            
-            # Handle single-point routes
-            if len(route_coords) == 1:
-                logging.warning(f"Single-point route encountered, skipping: {route_coords}")
-                return None  # Skip single-point routes
-
-            logging.debug(f"Route Coordinates: {route_coords}")
-
-            route_line = LineString(route_coords)
-
-            # Ensure that the route_line has more than one point
-            if len(route_line.coords) <= 1:
-                raise ValueError("The route line must contain more than one valid coordinate pair.")
-
-            clipped_geometry = route_line.difference(waco_polygon)
-
-            if clipped_geometry.is_empty:
-                return None
-
-            if isinstance(clipped_geometry, LineString):
-                return {
-                    "type": "Feature",
-                    "geometry": {"type": "LineString", "coordinates": list(clipped_geometry.coords)},
-                    "properties": feature["properties"]
-                }
-            elif isinstance(clipped_geometry, MultiLineString):
-                return {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "MultiLineString",
-                        "coordinates": [list(line.coords) for line in clipped_geometry.geoms]
-                    },
-                    "properties": feature["properties"]
-                }
-            else:
-                return None
-
-        except Exception as e:
-            logging.error(f"Error clipping route to boundary: {e}")
-            logging.debug(f"Feature: {feature}")
-            return None
 
     async def update_historical_data(self, fetch_all=False):
         try:
@@ -213,7 +253,7 @@ class GeoJSONHandler:
 
                 # Update the spatial index after adding new features
                 for i, feature in enumerate(new_features):
-                    bbox = self._calculate_bounding_box(feature) 
+                    bbox = self._calculate_bounding_box(feature)
                     self.idx.insert(len(self.historical_geojson_features) - len(new_features) + i, bbox)
 
         except Exception as e:
@@ -244,25 +284,3 @@ class GeoJSONHandler:
 
         logging.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
-    def _calculate_bounding_box(self, feature):
-        """Helper function to calculate the bounding box of a feature."""
-        coords = feature['geometry']['coordinates']
-
-        # Handle cases where coords is not a simple list of lists
-        if not all(isinstance(sublist, list) and len(sublist) == 2 for sublist in coords):
-            coords = [coord for sublist in coords for coord in sublist if isinstance(coord, list) and len(coord) == 2]
-
-        # Initialize min and max values with the first coordinate
-        min_lon = coords[0][0]
-        min_lat = coords[0][1]
-        max_lon = coords[0][0]
-        max_lat = coords[0][1]
-
-        # Iterate through all coordinates to find the actual min and max values
-        for lon, lat in coords:
-            min_lon = min(min_lon, lon)
-            max_lon = max(max_lon, lon)
-            min_lat = min(min_lat, lat)
-            max_lat = max(max_lat, lat)
-
-        return (min_lon, min_lat, max_lon, max_lat)

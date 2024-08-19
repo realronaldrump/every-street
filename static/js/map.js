@@ -7,7 +7,7 @@ let drawnItems;
 let selectedWacoBoundary = 'city_limits'; // Default to city limits
 
 // DOM elements
-let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBtn, stopBtn, playbackSpeedInput, speedValueSpan, wacoBoundarySelect, clearRouteBtn;
+let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBtn, stopBtn, playbackSpeedInput, speedValueSpan, wacoBoundarySelect, clearRouteBtn, applyFilterBtn;
 
 // Function to load Waco city limits
 async function loadWacoLimits(boundaryType) {
@@ -135,6 +135,14 @@ async function displayHistoricalData() {
       filter: feature => !filterWacoCheckbox.checked || isRouteInWaco(feature),
       onEachFeature: addRoutePopup
     }).addTo(map);
+    const currentBounds = map.getBounds(); // Store current bounds
+    
+  // Fit the map to the bounds of the filtered data ONLY if data exists
+  if (historicalDataLayer.getBounds().isValid() && historicalDataLayer.getLayers().length > 0) {
+    map.fitBounds(historicalDataLayer.getBounds());
+  } else {
+    map.fitBounds(currentBounds); // Restore previous bounds if no data
+  }
 
   } catch (error) {
     console.error('Error displaying historical data:', error);
@@ -154,12 +162,17 @@ function calculateTotalDistance(features) {
   }, 0);
 }
 
-// Check if route is within Waco limits
+// Modified function to check if a route is within Waco limits
 function isRouteInWaco(feature) {
-  return feature.geometry.coordinates.every(coord => {
-    const latlng = L.latLng(coord[1], coord[0]);
-    return wacoLimits.getBounds().contains(latlng);
-  });
+  if (!wacoLimits || !feature.geometry.coordinates) {
+    return false;
+  }
+
+  const routeCoords = feature.geometry.coordinates.map(coord => [coord[1], coord[0]]);
+  const routeLine = turf.lineString(routeCoords);
+  const wacoPolygon = turf.polygon([wacoLimits.feature.geometry.coordinates[0]]); // Correctly access coordinates
+
+  return turf.booleanContains(wacoPolygon, routeLine);
 }
 
 // Add hover popup with route information and playback button
@@ -464,14 +477,10 @@ async function initializeApp() {
   setInterval(updateLiveDataAndMetrics, 3000);
 }
 
-// Event listener setup
+// Modified function to set up event listeners
 function setupEventListeners() {
-  filterWacoCheckbox.addEventListener('change', () => {
-    if (filterWacoCheckbox.checked) {
-      wacoLimits.addTo(map);
-    } else {
-      wacoLimits.remove();
-    }
+  applyFilterBtn.addEventListener('click', async () => {
+    await loadWacoLimits(wacoBoundarySelect.value);
     displayHistoricalData();
   });
 
@@ -499,8 +508,6 @@ function setupEventListeners() {
 
   wacoBoundarySelect.addEventListener('change', () => {
     selectedWacoBoundary = wacoBoundarySelect.value;
-    loadWacoLimits(selectedWacoBoundary);
-    displayHistoricalData();
   });
 
   clearRouteBtn.addEventListener('click', clearLiveRoute);
@@ -509,7 +516,7 @@ function setupEventListeners() {
   playbackSpeedInput.addEventListener('input', adjustPlaybackSpeed);
 }
 
-// DOMContentLoaded event listener
+// Modified DOMContentLoaded event listener
 document.addEventListener('DOMContentLoaded', function() {
   // Initialize DOM elements
   filterWacoCheckbox = document.getElementById('filterWaco');
@@ -522,6 +529,7 @@ document.addEventListener('DOMContentLoaded', function() {
   speedValueSpan = document.getElementById('speedValue');
   wacoBoundarySelect = document.getElementById('wacoBoundarySelect');
   clearRouteBtn = document.getElementById('clearRouteBtn');
+  applyFilterBtn = document.getElementById('applyFilterBtn');
 
   // Initialize map and features
   initializeMap();
