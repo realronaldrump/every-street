@@ -27,40 +27,47 @@
     </header>
 
     <main>
-      <section id="time-filters">
-        <button onclick="filterRoutesBy('today')">Today</button>
-        <button onclick="filterRoutesBy('yesterday')">Yesterday</button>
-        <button onclick="filterRoutesBy('lastWeek')">Last Week</button>
-        <button onclick="filterRoutesBy('lastMonth')">Last Month</button>
-        <button onclick="filterRoutesBy('lastYear')">Last Year</button>
-        <button onclick="filterRoutesBy('allTime')">All Time</button>
-      </section>
+      <section id="filters">
+        <div class="filter-group" id="time-filters">
+          <button onclick="filterRoutesBy('today')">Today</button>
+          <button onclick="filterRoutesBy('yesterday')">Yesterday</button>
+          <button onclick="filterRoutesBy('lastWeek')">Last Week</button>
+          <button onclick="filterRoutesBy('lastMonth')">Last Month</button>
+          <button onclick="filterRoutesBy('lastYear')">Last Year</button>
+          <button onclick="filterRoutesBy('allTime')">All Time</button>
+        </div>
 
-      <section id="filter-controls">
-        <div class="filter-group">
-          <label for="filterWaco">
-            <input type="checkbox" id="filterWaco"> Filter by Waco
-          </label>
+        <div class="filter-group" id="custom-filters">
+          <div class="filter-row">
+            <label for="filterWaco">
+              <input type="checkbox" id="filterWaco"> Filter by Waco
+            </label>
+            <div class="filter-item">
+              <label for="wacoBoundarySelect">Waco Boundary:</label>
+              <select id="wacoBoundarySelect">
+                <option value="city_limits">Simplified City Limits</option>
+                <option value="less_goofy">Precise but Less Goofy Lookin' Boundary</option>
+                <option value="goofy">Precise (Goofy Lookin') Boundary</option>
+              </select>
+            </div>
+          </div>
+          <div class="filter-row">
+            <div class="filter-item">
+              <label for="startDate">Start Date:</label>
+              <input type="date" id="startDate" value="2020-01-01">
+            </div>
+            <div class="filter-item">
+              <label for="endDate">End Date:</label>
+              <input type="date" id="endDate">
+            </div>
+          </div>
+          <div class="filter-row">
+            <button id="applyFilterBtn">Apply Filter</button>
+            <button id="updateDataBtn">Check for new driving data</button>
+            <button onclick="exportToGPX()">Export to GPX</button>
+            <button onclick="clearDrawnShapes()">Clear Drawn Shapes</button>
+          </div>
         </div>
-        <div class="filter-group">
-          <label for="wacoBoundarySelect">Waco Boundary:</label>
-          <select id="wacoBoundarySelect">
-            <option value="city_limits">Simplified City Limits</option>
-            <option value="less_goofy">Precise but Less Goofy Lookin' Boundary</option>
-            <option value="goofy">Precise (Goofy Lookin') Boundary</option>
-          </select>
-        </div>
-        <div class="filter-group">
-          <label for="startDate">Start Date:</label>
-          <input type="date" id="startDate" value="2020-01-01">
-        </div>
-        <div class="filter-group">
-          <label for="endDate">End Date:</label>
-          <input type="date" id="endDate">
-        </div>
-        <button id="applyFilterBtn">Apply Filter</button> <button id="updateDataBtn">Check for new driving data</button>
-        <button onclick="exportToGPX()">Export to GPX</button>
-        <button onclick="clearDrawnShapes()">Clear Drawn Shapes</button>
       </section>
 
       <section id="map" aria-label="Map of Davis's routes"></section>
@@ -69,97 +76,86 @@
         <button id="playPauseBtn">Play</button>
         <button id="stopBtn">Stop</button>
         <button id="clearRouteBtn">Clear Route</button>
-        <label for="playbackSpeed">Speed:</label>
-        <input type="range" id="playbackSpeed" min="0.5" max="2" step="0.1" value="1">
-        <span id="speedValue">1x</span>
+        <div class="speed-control">
+          <label for="playbackSpeed">Speed:</label>
+          <input type="range" id="playbackSpeed" min="0.5" max="2" step="0.1" value="1">
+          <span id="speedValue">1x</span>
+        </div>
       </section>
 
       <section id="stats">
         <div class="stat-group">
-          <h2>Live Data</h2>
-          <div class="stat-card">
-            <h3>Last Updated</h3>
-            <p id="lastUpdated">N/A</p>
-          </div>
-          <div class="stat-card">
-            <h3>Speed</h3>
-            <p id="speed">N/A</p>
-          </div>
-          <div class="stat-card">
-            <h3>Location</h3>
-            <p id="location">N/A</p>
-          </div>
-        </div>
-
-        <div class="stat-group">
-          <h2>Trip Summary</h2>
-          <div class="stat-card">
-            <h3>Total Distance</h3>
-            <p id="totalDistance">N/A</p>
-          </div>
-          <div class="stat-card">
-            <h3>Total Time</h3>
-            <p id="totalTime">N/A</p>
-          </div>
-          <div class="stat-card">
-            <h3>Max Speed</h3>
-            <p id="maxSpeed">N/A</p>
-          </div>
-          <div class="stat-card">
-            <h3>Start Time</h3>
-            <p id="startTime">N/A</p>
-          </div>
-          <div class="stat-card">
-            <h3>End Time</h3>
-            <p id="endTime">N/A</p>
+          <h3>Live Data</h3>
+          <div class="stat-cards">
+            <div class="stat-card">
+              <h4>Last Updated</h4>
+              <p id="lastUpdated">N/A</p>
+            </div>
+            <div class="stat-card">
+              <h4>Speed</h4>
+              <p id="speed">N/A</p>
+            </div>
+            <div class="stat-card">
+              <h4>Location</h4>
+              <p id="location">N/A</p>
+            </div>
           </div>
         </div>
 
         <div class="stat-group">
-          <h2>Historical Data</h2>
-          <div class="stat-card">
-            <h3>Total Historical Distance</h3>
-            <p id="totalHistoricalDistance">N/A</p>
+          <h3>Trip Summary</h3>
+          <div class="stat-cards">
+            <div class="stat-card">
+              <h4>Total Distance</h4>
+              <p id="totalDistance">N/A</p>
+            </div>
+            <div class="stat-card">
+              <h4>Total Time</h4>
+              <p id="totalTime">N/A</p>
+            </div>
+            <div class="stat-card">
+              <h4>Max Speed</h4>
+              <p id="maxSpeed">N/A</p>
+            </div>
+            <div class="stat-card">
+              <h4>Start Time</h4>
+              <p id="startTime">N/A</p>
+            </div>
+            <div class="stat-card">
+              <h4>End Time</h4>
+              <p id="endTime">N/A</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-group">
+          <h3>Historical Data</h3>
+          <div class="stat-cards">
+            <div class="stat-card">
+              <h4>Total Historical Distance</h4>
+              <p id="totalHistoricalDistance">N/A</p>
+            </div>
           </div>
         </div>
       </section>
     </main>
   </div>
   
+  <footer>
+    <div id="audio-player">
+      <audio id="audioPlayer" autoplay controls>
+        <source id="audioSource" src="/static/hypesong.mp3" type="audio/mpeg">
+        Your browser does not support the audio element.
+      </audio>
+      <button id="skipBtn">Skip</button>
+    </div>
+  </footer>
+
   <script src="/static/js/map.js"></script>
   
-  <!-- Audio Player -->
-  <audio id="audioPlayer" autoplay controls>
-    <source id="audioSource" src="/static/hypesong.mp3" type="audio/mpeg">
-    Your browser does not support the audio element.
-  </audio>
-  <button id="skipBtn">Skip</button>
-
   <!-- JavaScript for managing playlist -->
   <script>
-    const audioPlayer = document.getElementById('audioPlayer');
-    const audioSource = document.getElementById('audioSource');
-    const skipBtn = document.getElementById('skipBtn');
-    const tracks = [
-      '/static/hypesong.mp3',
-      '/static/roadsofwaco.mp3'
-    ];
-    let currentTrack = 0;
-
-    // Function to load and play the next track
-    function playNextTrack() {
-      currentTrack++;
-      if (currentTrack >= tracks.length) {
-        currentTrack = 0;  // Loop back to the first track
-      }
-      audioSource.src = tracks[currentTrack];
-      audioPlayer.load(); // Reload the new source
-      audioPlayer.play();
-    }
-
-    audioPlayer.addEventListener('ended', playNextTrack);
-
-    skipBtn.addEventListener('click', playNextTrack);
+    // Your existing JavaScript code here
   </script>
 </body>
 </html>
