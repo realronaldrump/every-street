@@ -3,11 +3,9 @@ import asyncio
 import logging
 import json
 from datetime import datetime, timezone
-
 from flask import Flask, render_template, jsonify, request, Response
 from flask_socketio import SocketIO
 from dotenv import load_dotenv
-
 from bouncie_api import BouncieAPI
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
@@ -19,7 +17,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 load_dotenv()
 
 app = Flask(__name__)
-app.config["SECRET_KEY"] = "your_secret_key"  # Replace with a secure secret key
+app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
 socketio = SocketIO(app)
 
 # Initialize helper classes
@@ -30,8 +28,7 @@ gpx_exporter = GPXExporter()
 # Load historical data on startup
 asyncio.run(geojson_handler.load_historical_data())
 
-# --- Live Route Data Handling ---
-LIVE_ROUTE_DATA_FILE = "live_route_data.json"
+LIVE_ROUTE_DATA_FILE = "live_route_data.geojson"
 
 def load_live_route_data():
     try:
@@ -46,42 +43,12 @@ def save_live_route_data(data):
 
 live_route_data = load_live_route_data()
 
-@app.route("/live_route", methods=["GET", "POST"])
-def live_route():
-    global live_route_data
-    if request.method == "POST":
-        new_point = request.get_json()
-        new_coordinates = [new_point["longitude"], new_point["latitude"]]
-        new_timestamp = new_point["timestamp"]
-
-        # Check if there is at least one feature already
-        if live_route_data["features"]:
-            last_feature = live_route_data["features"][-1]
-            last_coordinates = last_feature["geometry"]["coordinates"]
-            last_timestamp = last_feature["properties"]["timestamp"]
-
-            # Only add the new point if coordinates or timestamp have changed
-            if new_coordinates == last_coordinates and new_timestamp == last_timestamp:
-                return jsonify({"message": "No change detected, point not added"})
-
-        # If coordinates or timestamp are different, add the new point
-        feature = {
-            "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": new_coordinates},
-            "properties": {"timestamp": new_timestamp},
-        }
-        live_route_data["features"].append(feature)
-        save_live_route_data(live_route_data)
-        return jsonify({"message": "Point added to live route"})
-    else:
-        return jsonify(live_route_data)
-
-# Background task to fetch and store live data
-async def update_live_route_data():
+async def poll_bouncie_api():
     while True:
         try:
             bouncie_data = await bouncie_api.get_latest_bouncie_data()
             if bouncie_data:
+                # Update the geojson with the latest point
                 new_point = {
                     "type": "Feature",
                     "geometry": {
@@ -90,55 +57,24 @@ async def update_live_route_data():
                     },
                     "properties": {"timestamp": bouncie_data["timestamp"]},
                 }
-
-                # Check if live_route_data has any features
-                if live_route_data["features"]:
-                    last_timestamp = live_route_data["features"][-1]["properties"]["timestamp"]
-                    # Only add the new point if the timestamp is different
-                    if new_point["properties"]["timestamp"] != last_timestamp:
-                        live_route_data["features"].append(new_point)
-                        save_live_route_data(live_route_data)
-                        logging.info("Live route data updated.")
-
-                        # Emit Socket.IO event to update the client
-                        socketio.emit('live_route_update', live_route_data)
-                else:
-                    # If no features yet, add the new point
-                    live_route_data["features"].append(new_point)
-                    save_live_route_data(live_route_data)
-                    logging.info("Live route data updated.")
-
-                    # Emit Socket.IO event to update the client
-                    socketio.emit('live_route_update', live_route_data)
-
+                live_route_data["features"].append(new_point)
+                save_live_route_data(live_route_data)
+                # Emit the update to any connected clients
+                socketio.emit("live_update", bouncie_data)
+            await asyncio.sleep(1)  # Poll every second
         except Exception as e:
-            logging.error(f"An error occurred while updating live route data: {e}")
+            logging.error(f"An error occurred while fetching live data: {e}")
+            await asyncio.sleep(5)  # Delay retry in case of error
 
-        await asyncio.sleep(1)  # Fetch every 1 second
+@app.route("/live_route", methods=["GET"])
+def live_route():
+    return jsonify(live_route_data)
 
-# Route to serve the index page
 @app.route("/")
 def index():
     today = datetime.now().strftime("%Y-%m-%d")
     return render_template("index.html", today=today)
 
-# Helper function to load Waco boundary
-def load_waco_boundary(boundary_name):
-    filenames = {
-        "city_limits": "city_limits.geojson",
-        "less_goofy": "less_goofy.geojson",  # Corrected filename
-        "goofy": "goofy.geojson",  # Corrected filename
-    }
-    filename = filenames.get(boundary_name)
-    if filename:
-        with open(f"static/{filename}") as f:
-            waco_limits_data = json.load(f)
-            return waco_limits_data["features"][0]["geometry"]["coordinates"][0]
-    else:
-        logging.error(f"Invalid wacoBoundary value: {boundary_name}")
-        return None
-
-# Route to get filtered historical data
 @app.route("/historical_data")
 def get_historical_data():
     start_date = request.args.get("startDate", "2020-01-01")
@@ -152,7 +88,7 @@ def get_historical_data():
     try:
         waco_limits = None
         if filter_waco and waco_boundary != "none":
-            waco_limits = load_waco_boundary(waco_boundary)
+            waco_limits = geojson_handler.load_waco_boundary(waco_boundary)
 
         filtered_features = geojson_handler.filter_geojson_features(
             start_date, end_date, filter_waco, waco_limits
@@ -171,7 +107,6 @@ def get_historical_data():
             500,
         )
 
-# Route to get live data (this might not be needed anymore)
 @app.route("/live_data")
 def get_live_data():
     loop = asyncio.get_event_loop()
@@ -181,7 +116,6 @@ def get_live_data():
             socketio.emit("live_update", bouncie_data)
 
             # Update live_route_data
-            global live_route_data
             new_point = {
                 "type": "Feature",
                 "geometry": {
@@ -199,13 +133,11 @@ def get_live_data():
         logging.error(f"An error occurred while fetching live data: {e}")
         return jsonify({"error": str(e)}), 500
 
-# Route to get trip metrics
 @app.route("/trip_metrics")
 def get_trip_metrics():
     formatted_metrics = bouncie_api.get_trip_metrics()
     return jsonify(formatted_metrics)
 
-# Route to export data to GPX format
 @app.route("/export_gpx")
 def export_gpx():
     start_date = request.args.get("startDate", "2020-01-01")
@@ -224,7 +156,6 @@ def export_gpx():
         headers={"Content-Disposition": "attachment;filename=export.gpx"},
     )
 
-# Update historical data and push changes to GitHub
 @app.route("/update_historical_data")
 def update_historical_data():
     loop = asyncio.get_event_loop()
@@ -235,31 +166,11 @@ def update_historical_data():
         logging.error(f"An error occurred during the update process: {e}")
         return jsonify({"error": str(e)}), 500
 
-# Periodic update for historical data
-async def periodic_data_update():
-    while True:
-        try:
-            await geojson_handler.update_historical_data()
-            logging.info("Historical data updated successfully via periodic update.")
-        except Exception as e:
-            logging.error(f"An error occurred during periodic update: {e}")
-
-        await asyncio.sleep(3600)
-
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-
+    loop.create_task(poll_bouncie_api())
     try:
-        loop.create_task(periodic_data_update())
-        # Create task for updating live route data
-        loop.create_task(update_live_route_data())
-        socketio.run(
-            app,
-            debug=os.environ.get("DEBUG"),
-            host="0.0.0.0",
-            port=int(os.environ.get("PORT", 8080)),
-            use_reloader=False,
-        )
+        socketio.run(app, debug=os.environ.get("DEBUG"), host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), use_reloader=False)
     finally:
         loop.close()
