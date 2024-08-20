@@ -43,12 +43,33 @@ def save_live_route_data(data):
 
 live_route_data = load_live_route_data()
 
+# Store the last point from the file in memory
+if live_route_data["features"]:
+    last_feature = live_route_data["features"][-1]
+else:
+    last_feature = None
+
 async def poll_bouncie_api():
+    global last_feature
     while True:
         try:
             bouncie_data = await bouncie_api.get_latest_bouncie_data()
             if bouncie_data:
-                # Update the geojson with the latest point
+                # Check if the new point is the same as the last one
+                if last_feature:
+                    last_coordinates = last_feature["geometry"]["coordinates"]
+                    last_timestamp = last_feature["properties"]["timestamp"]
+
+                    # Check if both the coordinates and timestamp are identical
+                    if (
+                        (bouncie_data["longitude"], bouncie_data["latitude"]) == tuple(last_coordinates) and 
+                        bouncie_data["timestamp"] == last_timestamp
+                    ):
+                        logging.info("Duplicate point detected, not adding to live route.")
+                        await asyncio.sleep(1)
+                        continue
+
+                # If not a duplicate, update the geojson with the latest point
                 new_point = {
                     "type": "Feature",
                     "geometry": {
@@ -57,8 +78,15 @@ async def poll_bouncie_api():
                     },
                     "properties": {"timestamp": bouncie_data["timestamp"]},
                 }
+                
+                # Update the last feature in memory
+                last_feature = new_point
+                
+                logging.info("Appending new point to live route data.")
                 live_route_data["features"].append(new_point)
+                logging.info("Saving updated live route data to file.")
                 save_live_route_data(live_route_data)
+                
                 # Emit the update to any connected clients
                 socketio.emit("live_update", bouncie_data)
             await asyncio.sleep(1)  # Poll every second
@@ -141,7 +169,7 @@ def get_trip_metrics():
 @app.route("/export_gpx")
 def export_gpx():
     start_date = request.args.get("startDate", "2020-01-01")
-    end_date = request.args.get("endDate")
+    end_date = request.args.get("EndDate")
     if end_date is None:
         end_date = datetime.now().strftime("%Y-%m-%d")  # Default to current date
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
