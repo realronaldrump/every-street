@@ -361,9 +361,39 @@ function clearDrawnShapes() {
 // Initialize Socket.IO for real-time updates
 function initializeSocketIO() {
   const socket = io();
-  socket.on('live_update', (data) => {
-    updateLiveData(data);
+  socket.on('live_route_update', (data) => {
+    // Update the live route on the map with the new data
+    updateLiveRoute(data); 
   });
+}
+
+// Function to update the live route on the map
+function updateLiveRoute(data) {
+  if (data.features.length > 0) {
+    const coordinates = data.features.map(feature => feature.geometry.coordinates);
+
+    if (!liveRoutePolyline) {
+      liveRoutePolyline = L.polyline(coordinates.map(coord => [coord[1], coord[0]]), {
+        color: '#007bff',
+        weight: 4
+      }).addTo(map);
+    } else {
+      liveRoutePolyline.setLatLngs(coordinates.map(coord => [coord[1], coord[0]]));
+    }
+
+    const lastCoord = coordinates[coordinates.length - 1];
+    if (!liveMarker) {
+      liveMarker = L.marker([lastCoord[1], lastCoord[0]], {
+        icon: L.divIcon({
+          className: 'blinking-marker',
+          iconSize: [20, 20],
+          html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
+        })
+      }).addTo(map);
+    } else {
+      liveMarker.setLatLng([lastCoord[1], lastCoord[0]]);
+    }
+  }
 }
 
 // Initialize the application

@@ -3,7 +3,6 @@ import asyncio
 import logging
 import json
 from datetime import datetime, timezone
-from json import JSONDecodeError
 
 from flask import Flask, render_template, jsonify, request, Response
 from flask_socketio import SocketIO
@@ -77,13 +76,37 @@ def live_route():
     else:
         return jsonify(live_route_data)
 
+# Background task to fetch and store live data
+async def update_live_route_data():
+    while True:
+        try:
+            bouncie_data = await bouncie_api.get_latest_bouncie_data()
+            if bouncie_data:
+                new_point = {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [bouncie_data["longitude"], bouncie_data["latitude"]],
+                    },
+                    "properties": {"timestamp": bouncie_data["timestamp"]},
+                }
+                live_route_data["features"].append(new_point)
+                save_live_route_data(live_route_data)
+                logging.info("Live route data updated.")
+
+                # Emit Socket.IO event to update the client
+                socketio.emit('live_route_update', live_route_data)
+
+        except Exception as e:
+            logging.error(f"An error occurred while updating live route data: {e}")
+
+        await asyncio.sleep(1)  # Fetch every 1 second
 
 # Route to serve the index page
 @app.route("/")
 def index():
     today = datetime.now().strftime("%Y-%m-%d")
     return render_template("index.html", today=today)
-
 
 # Helper function to load Waco boundary
 def load_waco_boundary(boundary_name):
@@ -100,7 +123,6 @@ def load_waco_boundary(boundary_name):
     else:
         logging.error(f"Invalid wacoBoundary value: {boundary_name}")
         return None
-
 
 # Route to get filtered historical data
 @app.route("/historical_data")
@@ -135,8 +157,7 @@ def get_historical_data():
             500,
         )
 
-
-# Route to get live data
+# Route to get live data (this might not be needed anymore)
 @app.route("/live_data")
 def get_live_data():
     loop = asyncio.get_event_loop()
@@ -164,13 +185,11 @@ def get_live_data():
         logging.error(f"An error occurred while fetching live data: {e}")
         return jsonify({"error": str(e)}), 500
 
-
 # Route to get trip metrics
 @app.route("/trip_metrics")
 def get_trip_metrics():
     formatted_metrics = bouncie_api.get_trip_metrics()
     return jsonify(formatted_metrics)
-
 
 # Route to export data to GPX format
 @app.route("/export_gpx")
@@ -191,7 +210,6 @@ def export_gpx():
         headers={"Content-Disposition": "attachment;filename=export.gpx"},
     )
 
-
 # Update historical data and push changes to GitHub
 @app.route("/update_historical_data")
 def update_historical_data():
@@ -202,7 +220,6 @@ def update_historical_data():
     except Exception as e:
         logging.error(f"An error occurred during the update process: {e}")
         return jsonify({"error": str(e)}), 500
-
 
 # Periodic update for historical data
 async def periodic_data_update():
@@ -215,13 +232,14 @@ async def periodic_data_update():
 
         await asyncio.sleep(3600)
 
-
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     try:
         loop.create_task(periodic_data_update())
+        # Create task for updating live route data
+        loop.create_task(update_live_route_data())
         socketio.run(
             app,
             debug=os.environ.get("DEBUG"),
