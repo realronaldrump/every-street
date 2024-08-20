@@ -4,10 +4,56 @@ let playbackSpeed = 1;
 let isPlaying = false;
 let currentCoordIndex = 0;
 let drawnItems;
-let selectedWacoBoundary = 'city_limits'; // Default to city limits
+let selectedWacoBoundary = 'less_goofy'; // Default to the more precise boundary
 
 // DOM elements
 let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBtn, stopBtn, playbackSpeedInput, speedValueSpan, wacoBoundarySelect, clearRouteBtn, applyFilterBtn;
+
+// Function to initialize the map
+function initializeMap() {
+  map = L.map('map').setView([31.5493, -97.1117], 13); // Centered on Waco, TX
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19
+  }).addTo(map);
+
+  // Initialize drawing tools
+  drawnItems = new L.FeatureGroup();
+  map.addLayer(drawnItems);
+
+  const drawControl = new L.Control.Draw({
+    draw: {
+      polyline: false,
+      polygon: true,
+      circle: false,
+      rectangle: false,
+      marker: false,
+      circlemarker: false
+    },
+    edit: {
+      featureGroup: drawnItems
+    }
+  });
+  map.addControl(drawControl);
+
+  // Event listeners for drawing tools
+  map.on(L.Draw.Event.CREATED, (e) => {
+    const layer = e.layer;
+    drawnItems.addLayer(layer);
+    filterHistoricalDataByPolygon(layer);
+  });
+
+  map.on(L.Draw.Event.EDITED, (e) => {
+    const layers = e.layers;
+    layers.eachLayer((layer) => {
+      filterHistoricalDataByPolygon(layer);
+    });
+  });
+
+  map.on(L.Draw.Event.DELETED, () => {
+    displayHistoricalData(); // Revert to default filtering
+  });
+}
 
 // Function to load Waco city limits
 async function loadWacoLimits(boundaryType) {
@@ -276,50 +322,6 @@ function adjustPlaybackSpeed() {
   }
 }
 
-// Initialize map and related features
-function initializeMap() {
-  map = L.map('map').setView([31.5493, -97.1117], 13); // Centered on Waco, TX
-
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-    maxZoom: 19
-  }).addTo(map);
-
-  drawnItems = new L.FeatureGroup();
-  map.addLayer(drawnItems);
-
-  const drawControl = new L.Control.Draw({
-    draw: {
-      polyline: false,
-      polygon: true,
-      circle: false,
-      rectangle: false,
-      marker: false,
-      circlemarker: false
-    },
-    edit: {
-      featureGroup: drawnItems
-    }
-  });
-  map.addControl(drawControl);
-
-  map.on(L.Draw.Event.CREATED, (e) => {
-    const layer = e.layer;
-    drawnItems.addLayer(layer);
-    filterHistoricalDataByPolygon(layer);
-  });
-
-  map.on(L.Draw.Event.EDITED, (e) => {
-    const layers = e.layers;
-    layers.eachLayer((layer) => {
-      filterHistoricalDataByPolygon(layer);
-    });
-  });
-
-  map.on(L.Draw.Event.DELETED, () => {
-    displayHistoricalData(); // Revert to default filtering
-  });
-}
-
 // Function to filter historical data by a drawn polygon
 function filterHistoricalDataByPolygon(polygon) {
   if (!historicalDataLayer) return;
@@ -364,6 +366,47 @@ function initializeSocketIO() {
   socket.on('live_update', (data) => {
     updateLiveData(data);
   });
+}
+
+// Function to filter routes by a specific period
+function filterRoutesBy(period) {
+  const now = new Date();
+  let startDate;
+
+  const periodMap = {
+    today: 0,
+    yesterday: -1,
+    lastWeek: -7,
+    lastMonth: -30,
+    lastYear: -365,
+    allTime: new Date(2020, 0, 1) // Assuming your data starts from 2020
+  };
+
+  startDate = periodMap[period] instanceof Date
+    ? periodMap[period]
+    : new Date(now.getFullYear(), now.getMonth(), now.getDate() + periodMap[period]);
+
+  startDateInput.value = startDate.toISOString().slice(0, 10);
+  endDateInput.value = now.toISOString().slice(0, 10);
+  displayHistoricalData(); // Update the map with the new date range
+}
+
+// Function to export data to GPX
+function exportToGPX() {
+  const startDate = startDateInput.value;
+  const endDate = endDateInput.value;
+  const filterWaco = filterWacoCheckbox.checked;
+  const wacoBoundary = wacoBoundarySelect.value;
+
+  const url = `/export_gpx?startDate=${startDate}&endDate=${endDate}&filterWaco=${filterWaco}&wacoBoundary=${wacoBoundary}`;
+
+  // Create a temporary link element to trigger the download
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'export.gpx';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 // Initialize the application
@@ -414,48 +457,6 @@ function setupEventListeners() {
   playPauseBtn.addEventListener('click', togglePlayPause);
   stopBtn.addEventListener('click', stopPlayback);
   playbackSpeedInput.addEventListener('input', adjustPlaybackSpeed);
-}
-
-// Function to filter routes by a specific period
-function filterRoutesBy(period) {
-  const now = new Date();
-  let startDate;
-
-  const periodMap = {
-    today: 0,
-    yesterday: -1,
-    lastWeek: -7,
-    lastMonth: -30,
-    lastYear: -365,
-    allTime: new Date(2020, 0, 1) // Assuming your data starts from 2020
-  };
-
-  startDate = periodMap[period] instanceof Date
-    ? periodMap[period]
-    : new Date(now.getFullYear(), now.getMonth(), now.getDate() + periodMap[period]);
-
-  startDateInput.value = startDate.toISOString().slice(0, 10);
-  endDateInput.value = now.toISOString().slice(0, 10);
-  displayHistoricalData(); // Update the map with the new date range
-}
-
-
-// Function to export data to GPX
-function exportToGPX() {
-  const startDate = startDateInput.value;
-  const endDate = endDateInput.value;
-  const filterWaco = filterWacoCheckbox.checked;
-  const wacoBoundary = wacoBoundarySelect.value;
-
-  const url = `/export_gpx?startDate=${startDate}&endDate=${endDate}&filterWaco=${filterWaco}&wacoBoundary=${wacoBoundary}`;
-
-  // Create a temporary link element to trigger the download
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = 'export.gpx';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
 }
 
 // DOMContentLoaded event listener

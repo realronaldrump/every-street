@@ -58,6 +58,26 @@ class GeoJSONHandler:
 
         return (min_lon, min_lat, max_lon, max_lat)
 
+    def load_waco_boundary(self, boundary_type):
+        """Loads the specified Waco boundary from a GeoJSON file."""
+        try:
+            with open(f"static/{boundary_type}.geojson", "r") as f:
+                data = json.load(f)
+                features = data.get("features", [])
+                if features:
+                    # Assuming the first feature contains the boundary coordinates
+                    boundary_coordinates = features[0]["geometry"]["coordinates"]
+                    return boundary_coordinates
+                else:
+                    logging.error(f"No features found in {boundary_type}.geojson")
+                    return None
+        except FileNotFoundError:
+            logging.error(f"File not found: static/{boundary_type}.geojson")
+            return None
+        except Exception as e:
+            logging.error(f"Error loading Waco boundary: {e}")
+            return None
+
     def clip_route_to_boundary(self, feature, waco_limits):
         try:
             # Check that waco_limits is a list of lists
@@ -82,12 +102,12 @@ class GeoJSONHandler:
             if len(waco_limits) > 1:
                 # If there are multiple rings, the first is the outer boundary,
                 # and the rest are holes
-                exterior_coords = waco_limits[0]
-                holes = [ring for ring in waco_limits[1:]]
+                exterior_coords = waco_limits[0][0]  # Extract the first ring
+                holes = [ring[0] for ring in waco_limits[1:]]  # Extract other rings
                 waco_polygon = Polygon(exterior_coords, holes=holes)
             else:
                 # If there's only one ring, it's the outer boundary
-                waco_polygon = Polygon(waco_limits[0])
+                waco_polygon = Polygon(waco_limits[0][0])  # Extract the first ring
 
             # Apply a small buffer to resolve topology issues
             waco_polygon = waco_polygon.buffer(0)
