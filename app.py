@@ -90,12 +90,26 @@ async def update_live_route_data():
                     },
                     "properties": {"timestamp": bouncie_data["timestamp"]},
                 }
-                live_route_data["features"].append(new_point)
-                save_live_route_data(live_route_data)
-                logging.info("Live route data updated.")
 
-                # Emit Socket.IO event to update the client
-                socketio.emit('live_route_update', live_route_data)
+                # Check if live_route_data has any features
+                if live_route_data["features"]:
+                    last_timestamp = live_route_data["features"][-1]["properties"]["timestamp"]
+                    # Only add the new point if the timestamp is different
+                    if new_point["properties"]["timestamp"] != last_timestamp:
+                        live_route_data["features"].append(new_point)
+                        save_live_route_data(live_route_data)
+                        logging.info("Live route data updated.")
+
+                        # Emit Socket.IO event to update the client
+                        socketio.emit('live_route_update', live_route_data)
+                else:
+                    # If no features yet, add the new point
+                    live_route_data["features"].append(new_point)
+                    save_live_route_data(live_route_data)
+                    logging.info("Live route data updated.")
+
+                    # Emit Socket.IO event to update the client
+                    socketio.emit('live_route_update', live_route_data)
 
         except Exception as e:
             logging.error(f"An error occurred while updating live route data: {e}")
