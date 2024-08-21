@@ -176,6 +176,12 @@ def export_gpx():
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
 
     try:
+        # Ensure historical data is loaded
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(geojson_handler.load_historical_data())
+        loop.close()
+
         gpx_data = gpx_exporter.export_to_gpx(
             start_date, end_date, filter_waco, waco_boundary
         )

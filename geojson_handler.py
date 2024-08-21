@@ -184,9 +184,11 @@ class GeoJSONHandler:
 
     async def load_historical_data(self):
         if self.historical_geojson_features:
+            logging.info("Historical data already loaded.")
             return  # Data already loaded
 
         try:
+            logging.info("Attempting to load historical data from file.")
             with open("static/historical_data.geojson", "r") as f:
                 data = json.load(f)
                 self.historical_geojson_features = data.get("features", [])
@@ -200,11 +202,21 @@ class GeoJSONHandler:
                     bbox = self._calculate_bounding_box(feature)
                     self.idx.insert(i, bbox)
 
+            if not self.historical_geojson_features:
+                logging.warning("Historical data file exists but contains no features.")
+                await self.update_historical_data(fetch_all=True)
+
         except FileNotFoundError:
             logging.info(
                 "No existing GeoJSON file found. Fetching historical data from Bouncie."
             )
             await self.update_historical_data(fetch_all=True)
+        except json.JSONDecodeError:
+            logging.error("Error decoding JSON from historical_data.geojson. File may be corrupted.")
+            await self.update_historical_data(fetch_all=True)
+        except Exception as e:
+            logging.error(f"Unexpected error loading historical data: {str(e)}")
+            raise
 
     def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits):
             start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(
