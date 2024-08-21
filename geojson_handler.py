@@ -220,8 +220,9 @@ class GeoJSONHandler:
             logging.info(
                 f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}"
             )
+            logging.info(f"Total features before filtering: {len(self.historical_geojson_features)}")
 
-            for feature in self.historical_geojson_features:
+            for i, feature in enumerate(self.historical_geojson_features):
                 timestamp = feature["properties"].get("timestamp")
                 if timestamp is not None:
                     route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
@@ -236,6 +237,10 @@ class GeoJSONHandler:
                         else:
                             # No Waco filter, add the entire route
                             filtered_features.append(feature)
+                    else:
+                        logging.debug(f"Feature {i} outside date range: {route_datetime}")
+                else:
+                    logging.warning(f"Feature {i} has no timestamp")
 
             logging.info(f"Filtered {len(filtered_features)} features")
             if not filtered_features:
