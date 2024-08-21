@@ -240,7 +240,9 @@ class GeoJSONHandler:
                 timestamp = feature["properties"].get("timestamp")
                 if timestamp is not None:
                     route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
+                    logging.debug(f"Feature {i} timestamp: {route_datetime}")
                     if start_datetime <= route_datetime <= end_datetime:
+                        logging.debug(f"Feature {i} within date range")
                         if filter_waco and waco_limits:
                             # Clip the route to the Waco boundary
                             clipped_route = self.clip_route_to_boundary(
@@ -248,9 +250,13 @@ class GeoJSONHandler:
                             )
                             if clipped_route:
                                 filtered_features.append(clipped_route)
+                                logging.debug(f"Feature {i} clipped and added")
+                            else:
+                                logging.debug(f"Feature {i} clipped but resulted in empty geometry")
                         else:
                             # No Waco filter, add the entire route
                             filtered_features.append(feature)
+                            logging.debug(f"Feature {i} added (no Waco filter)")
                     else:
                         logging.debug(f"Feature {i} outside date range: {route_datetime}")
                 else:

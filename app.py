@@ -157,8 +157,11 @@ def get_historical_data():
 
 @app.route("/live_data")
 def get_live_data():
-    loop = asyncio.get_event_loop()
     try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
         bouncie_data = loop.run_until_complete(bouncie_api.get_latest_bouncie_data())
         if bouncie_data:
             socketio.emit("live_update", bouncie_data)
@@ -180,6 +183,9 @@ def get_live_data():
     except Exception as e:
         logging.error(f"An error occurred while fetching live data: {e}")
         return jsonify({"error": str(e)}), 500
+    finally:
+        if loop and not loop.is_closed():
+            loop.close()
 
 @app.route("/trip_metrics")
 def get_trip_metrics():
