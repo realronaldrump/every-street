@@ -21,3 +21,4 @@ static/historical_data.gpx
 __pycache__
 .DS_Store
 .DS_Store
+.aider*
