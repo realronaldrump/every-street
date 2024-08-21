@@ -1,5 +1,5 @@
 // Global variables
-let map, wacoLimits, liveMarker, historicalDataLayer, liveRoutePolyline, playbackAnimation, playbackPolyline, playbackMarker;
+let map, wacoLimits, liveMarker, historicalDataLayer, liveRoutePolyline, playbackAnimation, playbackPolyline, playbackMarker, liveRouteDataLayer;
 let playbackSpeed = 1;
 let isPlaying = false;
 let currentCoordIndex = 0;
@@ -94,7 +94,13 @@ function clearLiveRoute() {
   }
 
   // Clear playback route as well
-  stopPlayback(); 
+  stopPlayback();
+
+  // Also clear the live route data layer
+  if (liveRouteDataLayer) {
+    map.removeLayer(liveRouteDataLayer);
+    liveRouteDataLayer = null;
+  }
 }
 
 // Function to load live route data
@@ -103,22 +109,29 @@ async function loadLiveRouteData() {
     const response = await fetch('/live_route');
     const data = await response.json();
 
-    if (data.features.length > 0) {
-      const coordinates = data.features.map(feature => feature.geometry.coordinates);
-      liveRoutePolyline = L.polyline(coordinates.map(coord => [coord[1], coord[0]]), {
-        color: '#007bff',
-        weight: 4
-      }).addTo(map);
-
-      const lastCoord = coordinates[coordinates.length - 1];
-      liveMarker = L.marker([lastCoord[1], lastCoord[0]], {
-        icon: L.divIcon({
-          className: 'blinking-marker',
-          iconSize: [20, 20],
-          html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
-        })
-      }).addTo(map);
+    if (liveRouteDataLayer) {
+      map.removeLayer(liveRouteDataLayer);
     }
+
+    liveRouteDataLayer = L.geoJSON(data, {
+      style: { color: '#007bff', weight: 4 }, // Style the live route
+      pointToLayer: function (feature, latlng) { // Use a custom marker for the live point
+        return L.marker(latlng, {
+          icon: L.divIcon({
+            className: 'blinking-marker',
+            iconSize: [20, 20],
+            html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
+          })
+        });
+      }
+    }).addTo(map);
+
+    // If there are points in the live route, set the view to the last point
+    if (data.features.length > 0) {
+      const lastCoord = data.features[data.features.length - 1].geometry.coordinates;
+      map.setView([lastCoord[1], lastCoord[0]], 13);
+    }
+
   } catch (error) {
     console.error('Error loading live route data:', error);
   }
@@ -152,6 +165,22 @@ function updateLiveData(data) {
       liveRoutePolyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
     }
     liveRoutePolyline.addLatLng(latLng);
+  }
+
+  // Update the live route data layer
+  if (liveRouteDataLayer) {
+    liveRouteDataLayer.addData({
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [data.longitude, data.latitude]
+      },
+      "properties": {
+        "timestamp": data.timestamp
+      }
+    });
+  } else {
+    loadLiveRouteData(); // Load the layer if it doesn't exist
   }
 }
 
@@ -416,7 +445,7 @@ async function initializeApp() {
 
   await loadWacoLimits(selectedWacoBoundary);
   await displayHistoricalData();
-  await loadLiveRouteData();
+  await loadLiveRouteData(); // Load the live route data on startup
   setInterval(updateLiveDataAndMetrics, 3000);
 }
 
