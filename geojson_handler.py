@@ -220,62 +220,51 @@ class GeoJSONHandler:
         logging.info(f"Total features after loading: {len(self.historical_geojson_features)}")
 
     def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits):
-        try:
-            start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(
-                tzinfo=timezone.utc
-            )
-            end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(
-                tzinfo=timezone.utc
-            )
-            end_datetime += timedelta(days=1) - timedelta(seconds=1)
+        start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
+        end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
+        end_datetime += timedelta(days=1) - timedelta(seconds=1)
 
-            filtered_features = []
+        filtered_features = []
 
-            logging.info(
-                f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}"
-            )
-            logging.info(f"Total features before filtering: {len(self.historical_geojson_features)}")
+        logging.info(
+            f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}"
+        )
+        logging.info(f"Total features before filtering: {len(self.historical_geojson_features)}")
 
-            # Use the R-tree index to filter features based on bounding box
-            # (This part needs to be adapted based on your specific filtering requirements)
-            # For example, if you want to filter by a specific area, you can calculate the bounding box of that area
-            # and use self.idx.intersection(bbox) to get the indices of features within that bounding box.
-            # Then, you can iterate over those indices and apply further filtering based on date and other criteria.
-
-            for i, feature in enumerate(self.historical_geojson_features):
-                timestamp = feature["properties"].get("timestamp")
-                if timestamp is not None:
-                    route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-                    logging.debug(f"Feature {i} timestamp: {route_datetime}")
-                    if start_datetime <= route_datetime <= end_datetime:
-                        logging.debug(f"Feature {i} within date range")
-                        if filter_waco and waco_limits:
-                            # Clip the route to the Waco boundary
-                            clipped_route = self.clip_route_to_boundary(
-                                feature, waco_limits
-                            )
-                            if clipped_route:
-                                filtered_features.append(clipped_route)
-                                logging.debug(f"Feature {i} clipped and added")
-                            else:
-                                logging.debug(f"Feature {i} clipped but resulted in empty geometry")
+        for i, feature in enumerate(self.historical_geojson_features):
+            timestamp = feature["properties"].get("timestamp")
+            if timestamp is not None:
+                route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
+                logging.debug(f"Feature {i} timestamp: {route_datetime}")
+                if start_datetime <= route_datetime <= end_datetime:
+                    logging.debug(f"Feature {i} within date range")
+                    if filter_waco and waco_limits:
+                        # Clip the route to the Waco boundary
+                        clipped_route = self.clip_route_to_boundary(
+                            feature, waco_limits
+                        )
+                        if clipped_route:
+                            filtered_features.append(clipped_route)
+                            logging.debug(f"Feature {i} clipped and added")
                         else:
-                            # No Waco filter, add the entire route
-                            filtered_features.append(feature)
-                            logging.debug(f"Feature {i} added (no Waco filter)")
+                            logging.debug(f"Feature {i} clipped but resulted in empty geometry")
                     else:
-                        logging.debug(f"Feature {i} outside date range: {route_datetime}")
+                        # No Waco filter, add the entire route
+                        filtered_features.append(feature)
+                        logging.debug(f"Feature {i} added (no Waco filter)")
                 else:
-                    logging.warning(f"Feature {i} has no timestamp")
+                    logging.debug(f"Feature {i} outside date range: {route_datetime}")
+            else:
+                logging.warning(f"Feature {i} has no timestamp")
 
-            logging.info(f"Filtered {len(filtered_features)} features")
-            if not filtered_features:
-                logging.warning("No features found after filtering")
-            return filtered_features
-
-        except Exception as e:
-            logging.error(f"Error filtering historical data: {e}")
-            return None
+        logging.info(f"Filtered {len(filtered_features)} features")
+        if not filtered_features:
+            logging.warning("No features found after filtering")
+        return filtered_features
 
     def get_feature_timestamps(self, feature):
         coordinates = feature["geometry"]["coordinates"]
