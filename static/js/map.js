@@ -9,6 +9,20 @@ let selectedWacoBoundary = 'less_goofy'; // Default to the more precise boundary
 // DOM elements
 let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBtn, stopBtn, playbackSpeedInput, speedValueSpan, wacoBoundarySelect, clearRouteBtn, applyFilterBtn;
 
+// Feedback function
+function showFeedback(message, type = 'info') {
+  const feedbackContainer = document.getElementById('feedback-container');
+  const feedbackElement = document.createElement('div');
+  feedbackElement.className = `feedback ${type}`;
+  feedbackElement.textContent = message;
+  feedbackContainer.appendChild(feedbackElement);
+  
+  // Remove the feedback after 5 seconds
+  setTimeout(() => {
+    feedbackElement.remove();
+  }, 5000);
+}
+
 // Function to initialize the map
 function initializeMap() {
   map = L.map('map').setView([31.5493, -97.1117], 13); // Centered on Waco, TX
@@ -187,6 +201,7 @@ function updateLiveData(data) {
 // Function to display historical data
 async function displayHistoricalData() {
   try {
+    showFeedback('Loading historical data...', 'info');
     const wacoBoundary = wacoBoundarySelect.value;
     const response = await fetch(`/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}`);
     const data = await response.json();
@@ -209,9 +224,10 @@ async function displayHistoricalData() {
     const totalDistance = calculateTotalDistance(data.features);
     document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
 
-    console.log(`Displayed ${data.features.length} historical features`);
+    showFeedback(`Displayed ${data.features.length} historical features`, 'success');
   } catch (error) {
     console.error('Error displaying historical data:', error);
+    showFeedback('Error loading historical data. Please try again.', 'error');
   }
 }
 
@@ -428,6 +444,7 @@ function filterRoutesBy(period) {
 
 // Function to export data to GPX
 function exportToGPX() {
+  showFeedback('Preparing GPX export...', 'info');
   const startDate = startDateInput.value;
   const endDate = endDateInput.value;
   const filterWaco = filterWacoCheckbox.checked;
@@ -442,6 +459,8 @@ function exportToGPX() {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
+
+  showFeedback('GPX export completed. Check your downloads.', 'success');
 }
 
 // Initialize the application
@@ -458,26 +477,30 @@ async function initializeApp() {
 // Setup event listeners
 function setupEventListeners() {
   applyFilterBtn.addEventListener('click', async () => {
+    showFeedback('Applying filters...', 'info');
     await loadWacoLimits(wacoBoundarySelect.value);
-    displayHistoricalData();
+    await displayHistoricalData();
+    showFeedback('Filters applied successfully', 'success');
   });
 
   updateDataBtn.addEventListener('click', async () => {
     try {
       updateDataBtn.disabled = true;
       updateDataBtn.textContent = "Updating...";
+      showFeedback('Checking for new driving data...', 'info');
 
       const response = await fetch('/update_historical_data');
       const data = await response.json();
 
       if (response.ok) {
-        console.log(data.message);
+        showFeedback(data.message, 'success');
         await displayHistoricalData();
       } else {
-        console.error(data.error);
+        showFeedback(data.error, 'error');
       }
     } catch (error) {
       console.error('Error updating historical data:', error);
+      showFeedback('Error updating historical data. Please try again.', 'error');
     } finally {
       updateDataBtn.disabled = false;
       updateDataBtn.textContent = "Check for new driving data";
@@ -486,12 +509,28 @@ function setupEventListeners() {
 
   wacoBoundarySelect.addEventListener('change', () => {
     selectedWacoBoundary = wacoBoundarySelect.value;
+    showFeedback(`Waco boundary changed to ${selectedWacoBoundary}`, 'info');
   });
 
-  clearRouteBtn.addEventListener('click', clearLiveRoute);
-  playPauseBtn.addEventListener('click', togglePlayPause);
-  stopBtn.addEventListener('click', stopPlayback);
-  playbackSpeedInput.addEventListener('input', adjustPlaybackSpeed);
+  clearRouteBtn.addEventListener('click', () => {
+    clearLiveRoute();
+    showFeedback('Live route cleared', 'info');
+  });
+
+  playPauseBtn.addEventListener('click', () => {
+    togglePlayPause();
+    showFeedback(isPlaying ? 'Playback resumed' : 'Playback paused', 'info');
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopPlayback();
+    showFeedback('Playback stopped', 'info');
+  });
+
+  playbackSpeedInput.addEventListener('input', () => {
+    adjustPlaybackSpeed();
+    showFeedback(`Playback speed set to ${playbackSpeed.toFixed(1)}x`, 'info');
+  });
 }
 
 // DOMContentLoaded event listener

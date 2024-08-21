@@ -241,7 +241,7 @@ def update_historical_data():
         return jsonify({"message": "Historical data updated successfully!"}), 200
     except Exception as e:
         logging.error(f"An error occurred during the update process: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
