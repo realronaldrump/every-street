@@ -342,3 +342,4 @@ class GeoJSONHandler:
 
         logging.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
+ 
