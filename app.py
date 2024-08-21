@@ -169,7 +169,7 @@ def get_trip_metrics():
 @app.route("/export_gpx")
 def export_gpx():
     start_date = request.args.get("startDate", "2020-01-01")
-    end_date = request.args.get("EndDate")
+    end_date = request.args.get("endDate")
     if end_date is None:
         end_date = datetime.now().strftime("%Y-%m-%d")  # Default to current date
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
