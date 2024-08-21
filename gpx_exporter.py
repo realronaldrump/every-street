@@ -10,17 +10,20 @@ class GPXExporter:
 
     def export_to_gpx(self, start_date, end_date, filter_waco, waco_boundary):
         try:
+            logging.info(f"Exporting GPX for date range: {start_date} to {end_date}")
+            logging.info(f"Filter Waco: {filter_waco}, Waco Boundary: {waco_boundary}")
+
             waco_limits = None
             if filter_waco:
                 waco_limits = self.geojson_handler.load_waco_boundary(waco_boundary)
+                logging.info(f"Loaded Waco limits: {waco_limits is not None}")
 
             filtered_features = self.geojson_handler.filter_geojson_features(
                 start_date, end_date, filter_waco, waco_limits
             )
             logging.info(f"Number of filtered features: {len(filtered_features)}")
-            if filtered_features:
-                logging.info(f"First feature: {filtered_features[0]}")
-            else:
+            
+            if not filtered_features:
                 logging.warning("No features found after filtering")
                 return None  # Return None if no features are found
 
@@ -49,6 +52,7 @@ class GPXExporter:
             gpx_data = etree.tostring(
                 gpx, pretty_print=True, xml_declaration=True, encoding="UTF-8"
             )
+            logging.info(f"Successfully created GPX data of length: {len(gpx_data)}")
             return gpx_data
         except Exception as e:
             logging.error(f"Error in export_to_gpx: {str(e)}")

@@ -175,18 +175,22 @@ def export_gpx():
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
 
-    gpx_data = gpx_exporter.export_to_gpx(
-        start_date, end_date, filter_waco, waco_boundary
-    )
-    
-    if gpx_data is None:
-        return jsonify({"error": "No data found for the specified date range"}), 404
-    
-    return Response(
-        gpx_data,
-        mimetype="application/gpx+xml",
-        headers={"Content-Disposition": "attachment;filename=export.gpx"},
-    )
+    try:
+        gpx_data = gpx_exporter.export_to_gpx(
+            start_date, end_date, filter_waco, waco_boundary
+        )
+        
+        if gpx_data is None:
+            return jsonify({"error": "No data found for the specified date range"}), 404
+        
+        return Response(
+            gpx_data,
+            mimetype="application/gpx+xml",
+            headers={"Content-Disposition": "attachment;filename=export.gpx"},
+        )
+    except Exception as e:
+        logging.error(f"Error in export_gpx: {str(e)}")
+        return jsonify({"error": f"An error occurred while exporting GPX: {str(e)}"}), 500
 
 @app.route("/update_historical_data")
 def update_historical_data():
