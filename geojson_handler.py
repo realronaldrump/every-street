@@ -19,7 +19,7 @@ class GeoJSONHandler:
         self.bouncie_api = BouncieAPI()
         self.github_updater = GitHubUpdater()
         self.historical_geojson_features = []
-        self.idx = None  # Initialize the spatial index
+        self.idx = index.Index()  # Initialize the R-tree index
 
     def _flatten_coordinates(self, coords):
         """Helper function to flatten a nested list of coordinates."""
@@ -201,7 +201,6 @@ class GeoJSONHandler:
                     await self.update_historical_data(fetch_all=True)
                 else:
                     # Create the spatial index
-                    self.idx = index.Index()
                     for i, feature in enumerate(self.historical_geojson_features):
                         bbox = self._calculate_bounding_box(feature)
                         self.idx.insert(i, bbox)
@@ -221,6 +220,7 @@ class GeoJSONHandler:
         logging.info(f"Total features after loading: {len(self.historical_geojson_features)}")
 
     def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits):
+        try:
             start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(
                 tzinfo=timezone.utc
             )
@@ -236,36 +236,31 @@ class GeoJSONHandler:
             )
             logging.info(f"Total features before filtering: {len(self.historical_geojson_features)}")
 
-            for i, feature in enumerate(self.historical_geojson_features):
-                timestamp = feature["properties"].get("timestamp")
-                if timestamp is not None:
-                    route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-                    logging.debug(f"Feature {i} timestamp: {route_datetime}")
-                    if start_datetime <= route_datetime <= end_datetime:
-                        logging.debug(f"Feature {i} within date range")
-                        if filter_waco and waco_limits:
-                            # Clip the route to the Waco boundary
-                            clipped_route = self.clip_route_to_boundary(
-                                feature, waco_limits
-                            )
-                            if clipped_route:
-                                filtered_features.append(clipped_route)
-                                logging.debug(f"Feature {i} clipped and added")
-                            else:
-                                logging.debug(f"Feature {i} clipped but resulted in empty geometry")
-                        else:
-                            # No Waco filter, add the entire route
-                            filtered_features.append(feature)
-                            logging.debug(f"Feature {i} added (no Waco filter)")
-                    else:
-                        logging.debug(f"Feature {i} outside date range: {route_datetime}")
-                else:
-                    logging.warning(f"Feature {i} has no timestamp")
+            if filter_waco and waco_limits:
+                # Calculate the bounding box of the Waco limits polygon
+                waco_polygon = Polygon(self._flatten_coordinates(waco_limits))
+                bbox = waco_polygon.bounds
+
+                # Use the R-tree index to filter features based on bounding box
+                filtered_indices = list(self.idx.intersection(bbox))
+                filtered_features = [self.historical_geojson_features[i] for i in filtered_indices]
+            else:
+                filtered_features = self.historical_geojson_features.copy()  # Create a copy to avoid modifying the original
+
+            # Apply date filtering to the pre-filtered features
+            filtered_features = [
+                feature for feature in filtered_features
+                if start_datetime <= datetime.fromtimestamp(feature["properties"]["timestamp"], timezone.utc) <= end_datetime
+            ]
 
             logging.info(f"Filtered {len(filtered_features)} features")
             if not filtered_features:
                 logging.warning("No features found after filtering")
             return filtered_features
+
+        except Exception as e:
+            logging.error(f"Error filtering historical data: {e}")
+            return None
 
     def get_feature_timestamps(self, feature):
         coordinates = feature["geometry"]["coordinates"]
@@ -375,4 +370,3 @@ class GeoJSONHandler:
 
         logging.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
- 

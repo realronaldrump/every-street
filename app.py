@@ -40,10 +40,12 @@ app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
 socketio = SocketIO(app)
 
-# Initialize helper classes
-bouncie_api = BouncieAPI()
+# Create a global instance of GeoJSONHandler
 geojson_handler = GeoJSONHandler()
-gpx_exporter = GPXExporter()
+
+# Initialize helper classes (using the global instance)
+bouncie_api = BouncieAPI()
+gpx_exporter = GPXExporter(geojson_handler)  # Pass the geojson_handler instance
 
 # Load historical data on startup
 asyncio.run(geojson_handler.load_historical_data())
@@ -55,6 +57,10 @@ def load_live_route_data():
         with open(LIVE_ROUTE_DATA_FILE, "r") as f:
             return json.load(f)
     except FileNotFoundError:
+        logging.warning(f"File not found: {LIVE_ROUTE_DATA_FILE}. Creating an empty GeoJSON.")
+        return {"type": "FeatureCollection", "features": []}
+    except json.JSONDecodeError:
+        logging.error(f"Error decoding JSON from {LIVE_ROUTE_DATA_FILE}. File may be corrupted.")
         return {"type": "FeatureCollection", "features": []}
 
 def save_live_route_data(data):
@@ -184,8 +190,8 @@ def get_live_data():
         logging.error(f"An error occurred while fetching live data: {e}")
         return jsonify({"error": str(e)}), 500
     finally:
-        if loop and not loop.is_closed():
-            loop.close()
+        # Removed loop.close() from here
+        pass
 
 @app.route("/trip_metrics")
 def get_trip_metrics():
@@ -203,10 +209,11 @@ def export_gpx():
 
     try:
         # Ensure historical data is loaded
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(geojson_handler.load_historical_data())
-        loop.close()
+        # (This is already done on startup, so this might be redundant)
+        # loop = asyncio.new_event_loop()
+        # asyncio.set_event_loop(loop)
+        # loop.run_until_complete(geojson_handler.load_historical_data())
+        # loop.close()
 
         gpx_data = gpx_exporter.export_to_gpx(
             start_date, end_date, filter_waco, waco_boundary

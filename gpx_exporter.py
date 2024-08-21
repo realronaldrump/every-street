@@ -5,8 +5,8 @@ from geojson_handler import GeoJSONHandler
 
 
 class GPXExporter:
-    def __init__(self):
-        self.geojson_handler = GeoJSONHandler()
+    def __init__(self, geojson_handler):
+        self.geojson_handler = geojson_handler
 
     def export_to_gpx(self, start_date, end_date, filter_waco, waco_boundary):
         try:
@@ -22,20 +22,20 @@ class GPXExporter:
                 start_date, end_date, filter_waco, waco_limits
             )
             logging.info(f"Number of filtered features: {len(filtered_features)}")
-            
+
             if not filtered_features:
                 logging.warning("No features found after filtering")
                 return None  # Return None if no features are found
 
             gpx = etree.Element("gpx", version="1.1", creator="EveryStreetApp")
-            
+
             # Add metadata
             metadata = etree.SubElement(gpx, "metadata")
             name = etree.SubElement(metadata, "name")
             name.text = f"GPX Export {start_date} to {end_date}"
             time = etree.SubElement(metadata, "time")
             time.text = datetime.now(timezone.utc).isoformat()
-            
+
             for i, feature in enumerate(filtered_features):
                 logging.info(f"Processing feature {i+1}/{len(filtered_features)}")
                 if 'geometry' not in feature or 'coordinates' not in feature['geometry']:
@@ -46,10 +46,10 @@ class GPXExporter:
                 name = etree.SubElement(trk, "name")
                 name.text = f"Track {feature['properties'].get('id', f'Unknown_{i+1}')}"
                 trkseg = etree.SubElement(trk, "trkseg")
-                
+
                 coordinates = feature["geometry"]["coordinates"]
                 timestamps = self.geojson_handler.get_feature_timestamps(feature)
-                
+
                 logging.info(f"Number of coordinates in feature: {len(coordinates)}")
                 for j, coord in enumerate(coordinates):
                     if len(coord) < 2:
