@@ -195,6 +195,11 @@ async function displayHistoricalData() {
       map.removeLayer(historicalDataLayer);
     }
 
+    // Clear any existing historical data
+    if (drawnItems) {
+      drawnItems.clearLayers();
+    }
+
     historicalDataLayer = L.geoJSON(data, {
       style: { color: 'blue', weight: 2, opacity: 0.25 },
       onEachFeature: addRoutePopup
@@ -204,6 +209,7 @@ async function displayHistoricalData() {
     const totalDistance = calculateTotalDistance(data.features);
     document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
 
+    console.log(`Displayed ${data.features.length} historical features`);
   } catch (error) {
     console.error('Error displaying historical data:', error);
   }

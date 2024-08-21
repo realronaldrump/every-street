@@ -235,7 +235,9 @@ def export_gpx():
 def update_historical_data():
     loop = asyncio.get_event_loop()
     try:
+        logging.info("Starting historical data update process")
         loop.run_until_complete(geojson_handler.update_historical_data())
+        logging.info("Historical data update process completed")
         return jsonify({"message": "Historical data updated successfully!"}), 200
     except Exception as e:
         logging.error(f"An error occurred during the update process: {e}")

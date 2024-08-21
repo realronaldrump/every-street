@@ -291,7 +291,6 @@ class GeoJSONHandler:
                 latest_date = datetime.fromtimestamp(
                     latest_timestamp, tz=timezone.utc
                 ) 
-                # Completely remove + timedelta(days=1)
                 logging.info(
                     f"Fetching historical data from Bouncie since {latest_date}."
                 )
@@ -324,28 +323,38 @@ class GeoJSONHandler:
 
             new_features = self.create_geojson_features_from_trips(all_trips)
             if new_features:
-                self.historical_geojson_features.extend(new_features)
+                # Filter out features that already exist in historical_geojson_features
+                existing_timestamps = set(feature["properties"]["timestamp"] for feature in self.historical_geojson_features)
+                unique_new_features = [feature for feature in new_features if feature["properties"]["timestamp"] not in existing_timestamps]
+                
+                if unique_new_features:
+                    self.historical_geojson_features.extend(unique_new_features)
+                    logging.info(f"Added {len(unique_new_features)} new unique features.")
 
-                with open("static/historical_data.geojson", "w") as f:
-                    json.dump(
-                        {
-                            "type": "FeatureCollection",
-                            "features": self.historical_geojson_features,
-                        },
-                        f,
-                    )
+                    with open("static/historical_data.geojson", "w") as f:
+                        json.dump(
+                            {
+                                "type": "FeatureCollection",
+                                "features": self.historical_geojson_features,
+                            },
+                            f,
+                        )
 
-                self.github_updater.push_changes()
+                    self.github_updater.push_changes()
 
-                # Update the spatial index after adding new features
-                for i, feature in enumerate(new_features):
-                    bbox = self._calculate_bounding_box(feature)
-                    self.idx.insert(
-                        len(self.historical_geojson_features)
-                        - len(new_features)
-                        + i,
-                        bbox,
-                    )
+                    # Update the spatial index after adding new features
+                    for i, feature in enumerate(unique_new_features):
+                        bbox = self._calculate_bounding_box(feature)
+                        self.idx.insert(
+                            len(self.historical_geojson_features)
+                            - len(unique_new_features)
+                            + i,
+                            bbox,
+                        )
+                else:
+                    logging.info("No new unique features to add.")
+            else:
+                logging.info("No new features created from fetched trips.")
 
         except Exception as e:
             logging.error(f"An error occurred during historical data update: {e}")
