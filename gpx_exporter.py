@@ -28,6 +28,13 @@ class GPXExporter:
                 return None  # Return None if no features are found
 
             gpx = etree.Element("gpx", version="1.1", creator="EveryStreetApp")
+            
+            # Add metadata
+            metadata = etree.SubElement(gpx, "metadata")
+            name = etree.SubElement(metadata, "name")
+            name.text = f"GPX Export {start_date} to {end_date}"
+            time = etree.SubElement(metadata, "time")
+            time.text = datetime.now(timezone.utc).isoformat()
             for i, feature in enumerate(filtered_features):
                 logging.info(f"Processing feature {i+1}/{len(filtered_features)}")
                 if 'geometry' not in feature or 'coordinates' not in feature['geometry']:

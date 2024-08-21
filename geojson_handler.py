@@ -196,15 +196,15 @@ class GeoJSONHandler:
                     f"Loaded {len(self.historical_geojson_features)} features from historical_data.geojson"
                 )
 
-                # Create the spatial index
-                self.idx = index.Index()
-                for i, feature in enumerate(self.historical_geojson_features):
-                    bbox = self._calculate_bounding_box(feature)
-                    self.idx.insert(i, bbox)
-
-            if not self.historical_geojson_features:
-                logging.warning("Historical data file exists but contains no features.")
-                await self.update_historical_data(fetch_all=True)
+                if not self.historical_geojson_features:
+                    logging.warning("Historical data file exists but contains no features.")
+                    await self.update_historical_data(fetch_all=True)
+                else:
+                    # Create the spatial index
+                    self.idx = index.Index()
+                    for i, feature in enumerate(self.historical_geojson_features):
+                        bbox = self._calculate_bounding_box(feature)
+                        self.idx.insert(i, bbox)
 
         except FileNotFoundError:
             logging.info(
@@ -217,6 +217,8 @@ class GeoJSONHandler:
         except Exception as e:
             logging.error(f"Unexpected error loading historical data: {str(e)}")
             raise
+
+        logging.info(f"Total features after loading: {len(self.historical_geojson_features)}")
 
     def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits):
             start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(
