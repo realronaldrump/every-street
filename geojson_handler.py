@@ -238,6 +238,8 @@ class GeoJSONHandler:
                             filtered_features.append(feature)
 
             logging.info(f"Filtered {len(filtered_features)} features")
+            if not filtered_features:
+                logging.warning("No features found after filtering")
             return filtered_features
 
     async def update_historical_data(self, fetch_all=False):

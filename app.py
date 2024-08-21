@@ -178,6 +178,10 @@ def export_gpx():
     gpx_data = gpx_exporter.export_to_gpx(
         start_date, end_date, filter_waco, waco_boundary
     )
+    
+    if gpx_data is None:
+        return jsonify({"error": "No data found for the specified date range"}), 404
+    
     return Response(
         gpx_data,
         mimetype="application/gpx+xml",

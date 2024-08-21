@@ -22,6 +22,7 @@ class GPXExporter:
                 logging.info(f"First feature: {filtered_features[0]}")
             else:
                 logging.warning("No features found after filtering")
+                return None  # Return None if no features are found
 
             gpx = etree.Element("gpx", version="1.1", creator="EveryStreetApp")
             for feature in filtered_features:
