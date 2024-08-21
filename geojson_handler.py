@@ -19,6 +19,7 @@ class GeoJSONHandler:
         self.bouncie_api = BouncieAPI()
         self.github_updater = GitHubUpdater()
         self.historical_geojson_features = []
+        self.fetched_trip_timestamps = set()  # Store timestamps of fetched trips
         self.idx = index.Index()  # Initialize the R-tree index
 
     def _flatten_coordinates(self, coords):
@@ -289,7 +290,8 @@ class GeoJSONHandler:
                 )
                 latest_date = datetime.fromtimestamp(
                     latest_timestamp, tz=timezone.utc
-                ) + timedelta(days=1)
+                ) 
+                # Completely remove + timedelta(days=1)
                 logging.info(
                     f"Fetching historical data from Bouncie since {latest_date}."
                 )
