@@ -1,6 +1,8 @@
 import os
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
+import os
 import json
 from datetime import datetime, timezone
 from flask import Flask, render_template, jsonify, request, Response
@@ -12,7 +14,25 @@ from gpx_exporter import GPXExporter
 from shapely.geometry import Polygon, LineString
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log_directory = "logs"
+if not os.path.exists(log_directory):
+    os.makedirs(log_directory)
+
+log_file = os.path.join(log_directory, "app.log")
+file_handler = RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5)  # 10MB per file, keep 5 backups
+file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+
+# Set up root logger
+logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().addHandler(file_handler)
+
+# Optionally, keep a streamhandler for console output, but set it to a higher level
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.WARNING)
+console_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+logging.getLogger().addHandler(console_handler)
+
+logging.info("Logging initialized")
 
 load_dotenv()
 
