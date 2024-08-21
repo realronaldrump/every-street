@@ -35,6 +35,7 @@ class GPXExporter:
             name.text = f"GPX Export {start_date} to {end_date}"
             time = etree.SubElement(metadata, "time")
             time.text = datetime.now(timezone.utc).isoformat()
+            
             for i, feature in enumerate(filtered_features):
                 logging.info(f"Processing feature {i+1}/{len(filtered_features)}")
                 if 'geometry' not in feature or 'coordinates' not in feature['geometry']:
@@ -47,26 +48,25 @@ class GPXExporter:
                 trkseg = etree.SubElement(trk, "trkseg")
                 
                 coordinates = feature["geometry"]["coordinates"]
-                if not isinstance(coordinates[0], list):
-                    coordinates = [coordinates]  # Ensure it's a list of coordinates
+                timestamps = self.geojson_handler.get_feature_timestamps(feature)
                 
                 logging.info(f"Number of coordinates in feature: {len(coordinates)}")
-                for coord in coordinates:
+                for j, coord in enumerate(coordinates):
                     if len(coord) < 2:
                         logging.warning(f"Invalid coordinate: {coord}")
                         continue
                     trkpt = etree.SubElement(
                         trkseg, "trkpt", lat=str(coord[1]), lon=str(coord[0])
                     )
-                    if 'timestamp' in feature['properties']:
+                    if j < len(timestamps):
                         time = etree.SubElement(trkpt, "time")
                         time.text = (
-                            datetime.utcfromtimestamp(
-                                feature["properties"]["timestamp"]
-                            ).replace(tzinfo=timezone.utc).isoformat()
+                            datetime.utcfromtimestamp(timestamps[j])
+                            .replace(tzinfo=timezone.utc)
+                            .isoformat()
                         )
                     else:
-                        logging.warning(f"No timestamp for feature {i+1}")
+                        logging.warning(f"No timestamp for coordinate {j} in feature {i+1}")
 
             gpx_data = etree.tostring(
                 gpx, pretty_print=True, xml_declaration=True, encoding="UTF-8"

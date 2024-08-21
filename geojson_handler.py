@@ -261,6 +261,14 @@ class GeoJSONHandler:
                 logging.warning("No features found after filtering")
             return filtered_features
 
+    def get_feature_timestamps(self, feature):
+        coordinates = feature["geometry"]["coordinates"]
+        timestamps = []
+        for coord in coordinates:
+            if len(coord) >= 5:  # Ensure the coordinate has a timestamp
+                timestamps.append(coord[4])
+        return timestamps
+
     async def update_historical_data(self, fetch_all=False):
         try:
             await self.bouncie_api.client.get_access_token()
