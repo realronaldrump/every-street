@@ -28,26 +28,38 @@ class GPXExporter:
                 return None  # Return None if no features are found
 
             gpx = etree.Element("gpx", version="1.1", creator="EveryStreetApp")
-            for feature in filtered_features:
+            for i, feature in enumerate(filtered_features):
+                logging.info(f"Processing feature {i+1}/{len(filtered_features)}")
+                if 'geometry' not in feature or 'coordinates' not in feature['geometry']:
+                    logging.warning(f"Invalid feature structure: {feature}")
+                    continue
+
                 trk = etree.SubElement(gpx, "trk")
                 name = etree.SubElement(trk, "name")
-                name.text = f"Track {feature['properties'].get('id', 'Unknown')}"
+                name.text = f"Track {feature['properties'].get('id', f'Unknown_{i+1}')}"
                 trkseg = etree.SubElement(trk, "trkseg")
                 
                 coordinates = feature["geometry"]["coordinates"]
                 if not isinstance(coordinates[0], list):
                     coordinates = [coordinates]  # Ensure it's a list of coordinates
                 
+                logging.info(f"Number of coordinates in feature: {len(coordinates)}")
                 for coord in coordinates:
+                    if len(coord) < 2:
+                        logging.warning(f"Invalid coordinate: {coord}")
+                        continue
                     trkpt = etree.SubElement(
                         trkseg, "trkpt", lat=str(coord[1]), lon=str(coord[0])
                     )
-                    time = etree.SubElement(trkpt, "time")
-                    time.text = (
-                        datetime.utcfromtimestamp(
-                            feature["properties"]["timestamp"]
-                        ).replace(tzinfo=timezone.utc).isoformat()
-                    )
+                    if 'timestamp' in feature['properties']:
+                        time = etree.SubElement(trkpt, "time")
+                        time.text = (
+                            datetime.utcfromtimestamp(
+                                feature["properties"]["timestamp"]
+                            ).replace(tzinfo=timezone.utc).isoformat()
+                        )
+                    else:
+                        logging.warning(f"No timestamp for feature {i+1}")
 
             gpx_data = etree.tostring(
                 gpx, pretty_print=True, xml_declaration=True, encoding="UTF-8"
