@@ -164,22 +164,21 @@ function updateLiveData(data) {
 
   const latLng = [data.latitude, data.longitude];
 
-  if (!liveMarker) {
-    liveMarker = L.marker(latLng, {
-      icon: L.divIcon({
-        className: 'blinking-marker',
-        iconSize: [20, 20],
-        html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
-      })
-    }).addTo(map);
-  } else {
-    liveMarker.setLatLng(latLng);
-
-    if (!liveRoutePolyline) {
-      liveRoutePolyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
-    }
-    liveRoutePolyline.addLatLng(latLng);
+  if (liveMarker) {
+    map.removeLayer(liveMarker);
   }
+  liveMarker = L.marker(latLng, {
+    icon: L.divIcon({
+      className: 'blinking-marker',
+      iconSize: [20, 20],
+      html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
+    })
+  }).addTo(map);
+
+  if (!liveRoutePolyline) {
+    liveRoutePolyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
+  }
+  liveRoutePolyline.addLatLng(latLng);
 
   // Update the live route data layer
   if (liveRouteDataLayer) {
