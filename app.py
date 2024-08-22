@@ -12,6 +12,7 @@ from bouncie_api import BouncieAPI
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
 from shapely.geometry import Polygon, LineString
+from geopy.geocoders import Nominatim
 
 # Set up logging
 log_directory = "logs"
@@ -54,7 +55,8 @@ socketio = SocketIO(app)
 # Create a global instance of GeoJSONHandler
 geojson_handler = GeoJSONHandler()
 
-# Initialize helper classes (using the global instance)
+# Initialize geolocator for search functionality
+geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 bouncie_api = BouncieAPI()
 gpx_exporter = GPXExporter(geojson_handler)  # Pass the geojson_handler instance
 
@@ -259,7 +261,25 @@ def export_gpx():
         logging.error(f"Error in export_gpx: {str(e)}")
         return jsonify({"error": f"An error occurred while exporting GPX: {str(e)}"}), 500
 
-@app.route("/update_historical_data")
+@app.route("/search_location")
+def search_location():
+    query = request.args.get("query")
+    if not query:
+        return jsonify({"error": "No search query provided"}), 400
+
+    try:
+        location = geolocator.geocode(query)
+        if location:
+            return jsonify({
+                "latitude": location.latitude,
+                "longitude": location.longitude,
+                "address": location.address
+            })
+        else:
+            return jsonify({"error": "Location not found"}), 404
+    except Exception as e:
+        logging.error(f"Error during location search: {e}")
+        return jsonify({"error": "An error occurred during the search"}), 500
 def update_historical_data():
     loop = asyncio.get_event_loop()
     try:
