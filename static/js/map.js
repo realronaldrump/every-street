@@ -179,6 +179,15 @@ function updateLiveData(data) {
     })
   }).addTo(map);
 
+  // Ensure only one live marker is present
+  if (liveRouteDataLayer) {
+    liveRouteDataLayer.eachLayer(layer => {
+      if (layer instanceof L.Marker && layer !== liveMarker) {
+        map.removeLayer(layer);
+      }
+    });
+  }
+
   if (!liveRoutePolyline) {
     liveRoutePolyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
   } else {
