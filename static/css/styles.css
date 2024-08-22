@@ -519,3 +519,182 @@ audio[controls] {
     border: 2px solid currentColor;
   }
 }
+/* General Styles */
+body {
+    font-family: 'Roboto', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f4;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+header h1 {
+    font-size: 2.5em;
+    margin: 0;
+}
+
+header h2 {
+    font-size: 1.5em;
+    color: #555;
+}
+
+button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: background-color 0.3s ease;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+#feedback-container {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+}
+
+.feedback {
+    padding: 10px;
+    margin-bottom: 10px;
+    border-radius: 5px;
+    animation: fadeIn 0.5s, fadeOut 0.5s 4.5s;
+}
+
+.feedback.info {
+    background-color: #d9edf7;
+    color: #31708f;
+}
+
+.feedback.success {
+    background-color: #dff0d8;
+    color: #3c763d;
+}
+
+.feedback.warning {
+    background-color: #fcf8e3;
+    color: #8a6d3b;
+}
+
+.feedback.error {
+    background-color: #f2dede;
+    color: #a94442;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+#map {
+    height: 600px;
+    margin-bottom: 20px;
+}
+
+.playback-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.playback-controls button {
+    flex: 1;
+    margin: 0 5px;
+}
+
+.speed-control {
+    display: flex;
+    align-items: center;
+}
+
+.speed-control label {
+    margin-right: 10px;
+}
+
+.stats {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+}
+
+.stat-group {
+    flex: 1;
+    margin: 10px;
+}
+
+.stat-cards {
+    display: flex;
+    flex-wrap: wrap;
+}
+
+.stat-card {
+    flex: 1;
+    background-color: white;
+    padding: 20px;
+    margin: 10px;
+    border-radius: 5px;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+#searchInput {
+    width: calc(100% - 110px);
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    margin-right: 10px;
+}
+
+#searchBtn {
+    padding: 10px 20px;
+}
+
+#searchSuggestions {
+    position: absolute;
+    background-color: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    width: calc(100% - 110px);
+    max-height: 200px;
+    overflow-y: auto;
+    z-index: 1000;
+}
+
+#searchSuggestions div {
+    padding: 10px;
+    cursor: pointer;
+}
+
+#searchSuggestions div:hover {
+    background-color: #f4f4f4;
+}
+
+.blinking-marker {
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0% { opacity: 1; }
+    50% { opacity: 0; }
+    100% { opacity: 1; }
+}

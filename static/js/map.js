@@ -563,7 +563,81 @@ document.addEventListener('DOMContentLoaded', function() {
 
   searchInput = document.getElementById('searchInput');
   searchBtn = document.getElementById('searchBtn');
+  let searchMarker;
+
   searchBtn.addEventListener('click', async () => {
+    const query = searchInput.value;
+    if (!query) {
+      showFeedback('Please enter a location to search for.', 'warning');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/search_location?query=${query}`);
+      const data = await response.json();
+
+      if (data.error) {
+        showFeedback(data.error, 'error');
+      } else {
+        const { latitude, longitude, address } = data;
+        map.setView([latitude, longitude], 13);
+
+        if (searchMarker) {
+          map.removeLayer(searchMarker);
+        }
+
+        searchMarker = L.marker([latitude, longitude], {
+          icon: L.divIcon({
+            className: 'custom-marker',
+            iconSize: [30, 30],
+            html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
+          })
+        }).addTo(map)
+          .bindPopup(`<b>${address}</b>`)
+          .openPopup();
+
+        showFeedback(`Found location: ${address}`, 'success');
+
+        // Remove the marker after 10 seconds
+        setTimeout(() => {
+          if (searchMarker) {
+            map.removeLayer(searchMarker);
+            searchMarker = null;
+          }
+        }, 10000);
+      }
+    } catch (error) {
+      console.error('Error searching for location:', error);
+      showFeedback('Error searching for location. Please try again.', 'error');
+    }
+  });
+
+  searchInput.addEventListener('input', async () => {
+    const query = searchInput.value;
+    if (query.length < 3) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`/search_suggestions?query=${query}`);
+      const suggestions = await response.json();
+
+      const suggestionsContainer = document.getElementById('searchSuggestions');
+      suggestionsContainer.innerHTML = '';
+
+      suggestions.forEach(suggestion => {
+        const suggestionElement = document.createElement('div');
+        suggestionElement.textContent = suggestion;
+        suggestionElement.addEventListener('click', () => {
+          searchInput.value = suggestion;
+          suggestionsContainer.innerHTML = '';
+        });
+        suggestionsContainer.appendChild(suggestionElement);
+      });
+    } catch (error) {
+      console.error('Error fetching search suggestions:', error);
+    }
+  });
     const query = searchInput.value;
     if (!query) {
       showFeedback('Please enter a location to search for.', 'warning');
