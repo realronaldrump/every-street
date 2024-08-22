@@ -16,7 +16,7 @@ function showFeedback(message, type = 'info') {
   feedbackElement.className = `feedback ${type}`;
   feedbackElement.textContent = message;
   feedbackContainer.appendChild(feedbackElement);
-  
+
   // Remove the feedback after 5 seconds
   setTimeout(() => {
     feedbackElement.remove();
@@ -394,7 +394,7 @@ function filterHistoricalDataByPolygon(polygon) {
     const routeGeoJSON = layer.toGeoJSON();
     if (routeGeoJSON.geometry.type === 'LineString') {
       return turf.booleanCrosses(polygon.toGeoJSON(), routeGeoJSON) ||
-             turf.booleanWithin(routeGeoJSON, polygon.toGeoJSON());
+        turf.booleanWithin(routeGeoJSON, polygon.toGeoJSON());
     } else if (routeGeoJSON.geometry.type === 'MultiLineString') {
       return routeGeoJSON.geometry.coordinates.some(segment =>
         turf.booleanCrosses(polygon.toGeoJSON(), turf.lineString(segment)) ||
@@ -544,26 +544,6 @@ function setupEventListeners() {
     adjustPlaybackSpeed();
     showFeedback(`Playback speed set to ${playbackSpeed.toFixed(1)}x`, 'info');
   });
-}
-
-// DOMContentLoaded event listener
-document.addEventListener('DOMContentLoaded', function() {
-  // Initialize DOM elements
-  filterWacoCheckbox = document.getElementById('filterWaco');
-  startDateInput = document.getElementById('startDate');
-  endDateInput = document.getElementById('endDate');
-  updateDataBtn = document.getElementById('updateDataBtn');
-  playPauseBtn = document.getElementById('playPauseBtn');
-  stopBtn = document.getElementById('stopBtn');
-  playbackSpeedInput = document.getElementById('playbackSpeed');
-  speedValueSpan = document.getElementById('speedValue');
-  wacoBoundarySelect = document.getElementById('wacoBoundarySelect');
-  clearRouteBtn = document.getElementById('clearRouteBtn');
-  applyFilterBtn = document.getElementById('applyFilterBtn');
-
-  searchInput = document.getElementById('searchInput');
-  searchBtn = document.getElementById('searchBtn');
-  let searchMarker;
 
   searchBtn.addEventListener('click', async () => {
     const query = searchInput.value;
@@ -638,61 +618,109 @@ document.addEventListener('DOMContentLoaded', function() {
       console.error('Error fetching search suggestions:', error);
     }
   });
-    const query = searchInput.value;
-    if (!query) {
-      showFeedback('Please enter a location to search for.', 'warning');
-      return;
-    }
+}
 
-    try {
-      const response = await fetch(`/search_location?query=${query}`);
-      const data = await response.json();
+// DOMContentLoaded event listener
+document.addEventListener('DOMContentLoaded', function() {
+  // Initialize DOM elements
+  filterWacoCheckbox = document.getElementById('filterWaco');
+  startDateInput = document.getElementById('startDate');
+  endDateInput = document.getElementById('endDate');
+  updateDataBtn = document.getElementById('updateDataBtn');
+  playPauseBtn = document.getElementById('playPauseBtn');
+  stopBtn = document.getElementById('stopBtn');
+  playbackSpeedInput = document.getElementById('playbackSpeed');
+  speedValueSpan = document.getElementById('speedValue');
+  wacoBoundarySelect = document.getElementById('wacoBoundarySelect');
+  clearRouteBtn = document.getElementById('clearRouteBtn');
+  applyFilterBtn = document.getElementById('applyFilterBtn');
+  searchInput = document.getElementById('searchInput');
+  searchBtn = document.getElementById('searchBtn');
 
-      if (data.error) {
-        showFeedback(data.error, 'error');
-      } else {
-        const { latitude, longitude, address } = data;
-        map.setView([latitude, longitude], 13);
-        L.marker([latitude, longitude]).addTo(map)
-          .bindPopup(`<b>${address}</b>`)
-          .openPopup();
-        showFeedback(`Found location: ${address}`, 'success');
+  let searchMarker;
+
+  searchBtn.addEventListener('click', async () => {
+      const query = searchInput.value;
+      if (!query) {
+          showFeedback('Please enter a location to search for.', 'warning');
+          return;
       }
-    } catch (error) {
-      console.error('Error searching for location:', error);
-      showFeedback('Error searching for location. Please try again.', 'error');
-    }
+
+      try {
+          const response = await fetch(`/search_location?query=${query}`);
+          const data = await response.json();
+
+          if (data.error) {
+              showFeedback(data.error, 'error');
+          } else {
+              const { latitude, longitude, address } = data;
+              map.setView([latitude, longitude], 13);
+
+              if (searchMarker) {
+                  map.removeLayer(searchMarker);
+              }
+
+              searchMarker = L.marker([latitude, longitude], {
+                  icon: L.divIcon({
+                      className: 'custom-marker',
+                      iconSize: [30, 30],
+                      html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
+                  })
+              }).addTo(map)
+                .bindPopup(`<b>${address}</b>`)
+                .openPopup();
+
+              showFeedback(`Found location: ${address}`, 'success');
+
+              // Remove the marker after 10 seconds
+              setTimeout(() => {
+                  if (searchMarker) {
+                      map.removeLayer(searchMarker);
+                      searchMarker = null;
+                  }
+              }, 10000);
+          }
+      } catch (error) {
+          console.error('Error searching for location:', error);
+          showFeedback('Error searching for location. Please try again.', 'error');
+      }
+  });
+
+  searchInput.addEventListener('input', async () => {
+      const query = searchInput.value;
+      const suggestionsContainer = document.getElementById('searchSuggestions');
+      
+      // Clear the suggestions container when input changes
+      suggestionsContainer.innerHTML = '';
+
+      if (query.length < 3) {
+          return;
+      }
+
+      try {
+          const response = await fetch(`/search_suggestions?query=${query}`);
+          const suggestions = await response.json();
+
+          if (suggestions.length > 0) {
+              suggestions.forEach(suggestion => {
+                  const suggestionElement = document.createElement('div');
+                  suggestionElement.textContent = suggestion.address; // Access the address property
+                  suggestionElement.addEventListener('click', () => {
+                      searchInput.value = suggestion.address; // Set the input value to the selected address
+                      suggestionsContainer.innerHTML = '';
+                  });
+                  suggestionsContainer.appendChild(suggestionElement);
+              });
+          }
+      } catch (error) {
+          console.error('Error fetching search suggestions:', error);
+      }
   });
 
   initializeMap();
-  searchBtn.addEventListener('click', async () => {
-    const query = searchInput.value;
-    if (!query) {
-      showFeedback('Please enter a location to search for.', 'warning');
-      return;
-    }
-
-    try {
-      const response = await fetch(`/search_location?query=${query}`);
-      const data = await response.json();
-
-      if (data.error) {
-        showFeedback(data.error, 'error');
-      } else {
-        const { latitude, longitude, address } = data;
-        map.setView([latitude, longitude], 13);
-        L.marker([latitude, longitude]).addTo(map)
-          .bindPopup(`<b>${address}</b>`)
-          .openPopup();
-        showFeedback(`Found location: ${address}`, 'success');
-      }
-    } catch (error) {
-      console.error('Error searching for location:', error);
-      showFeedback('Error searching for location. Please try again.', 'error');
-    }
-  });
-
   initializeSocketIO();
   setupEventListeners();
   initializeApp();
 });
+
+

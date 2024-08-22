@@ -280,6 +280,25 @@ def search_location():
     except Exception as e:
         logging.error(f"Error during location search: {e}")
         return jsonify({"error": "An error occurred during the search"}), 500
+    
+@app.route("/search_suggestions")
+def search_suggestions():
+    query = request.args.get("query")
+    if not query:
+        return jsonify({"error": "No search query provided"}), 400
+
+    try:
+        locations = geolocator.geocode(query, exactly_one=False, limit=5)
+        if locations:
+            suggestions = [{"address": location.address} for location in locations]
+            return jsonify(suggestions)
+        else:
+            return jsonify([])  # Return an empty list if no locations found
+    except Exception as e:
+        logging.error(f"Error during location search: {e}")
+        return jsonify({"error": "An error occurred during the search"}), 500
+
+
 def update_historical_data():
     loop = asyncio.get_event_loop()
     try:
