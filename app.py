@@ -146,7 +146,7 @@ def login():
             flash("Invalid PIN. Please try again.", "error")
     return render_template("login.html")
 
-@app.route("/logout")
+@app.route("/logout", methods=["GET", "POST"])
 def logout():
     session.pop("authenticated", None)
     return redirect(url_for("login"))
