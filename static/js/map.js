@@ -130,13 +130,17 @@ async function loadLiveRouteData() {
     liveRouteDataLayer = L.geoJSON(data, {
       style: { color: '#007bff', weight: 4 }, // Style the live route
       pointToLayer: function (feature, latlng) { // Use a custom marker for the live point
-        return L.marker(latlng, {
+        if (liveMarker) {
+          map.removeLayer(liveMarker);
+        }
+        liveMarker = L.marker(latlng, {
           icon: L.divIcon({
             className: 'blinking-marker',
             iconSize: [20, 20],
             html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
           })
         });
+        return liveMarker;
       }
     }).addTo(map);
 
@@ -177,8 +181,9 @@ function updateLiveData(data) {
 
   if (!liveRoutePolyline) {
     liveRoutePolyline = L.polyline([], { color: '#007bff', weight: 4 }).addTo(map);
+  } else {
+    liveRoutePolyline.addLatLng(latLng);
   }
-  liveRoutePolyline.addLatLng(latLng);
 
   // Update the live route data layer
   if (liveRouteDataLayer) {
