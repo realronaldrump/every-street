@@ -5,7 +5,7 @@ from logging.handlers import RotatingFileHandler
 import os
 import json
 from datetime import datetime, timezone
-from flask import Flask, render_template, jsonify, request, Response
+from flask import Flask, render_template, jsonify, request, Response, redirect, url_for, session, flash
 from flask_socketio import SocketIO
 from dotenv import load_dotenv
 from bouncie_api import BouncieAPI
@@ -38,6 +38,7 @@ load_dotenv()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
+app.config["PIN"] = os.getenv("PIN", "1234")
 socketio = SocketIO(app)
 
 # Create a global instance of GeoJSONHandler
@@ -124,7 +125,24 @@ async def poll_bouncie_api():
 def live_route():
     return jsonify(live_route_data)
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "POST":
+        pin = request.form.get("pin")
+        if pin == app.config["PIN"]:
+            session["authenticated"] = True
+            return redirect(url_for("index"))
+        else:
+            flash("Invalid PIN. Please try again.", "error")
+    return render_template("login.html")
+
+@app.route("/logout")
+def logout():
+    session.pop("authenticated", None)
+    return redirect(url_for("login"))
+
 @app.route("/")
+@login_required
 def index():
     today = datetime.now().strftime("%Y-%m-%d")
     return render_template("index.html", today=today)
@@ -242,6 +260,16 @@ def update_historical_data():
     except Exception as e:
         logging.error(f"An error occurred during the update process: {e}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+
+from functools import wraps
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("authenticated"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()

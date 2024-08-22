@@ -27,6 +27,9 @@
         <header>
             <h1>Every Street</h1>
             <h2>Tracking Davis as he Conquers Every Street in Waco!</h2>
+            <form method="POST" action="{{ url_for('logout') }}">
+                <button type="submit">Logout</button>
+            </form>
         </header>
 
         <div id="feedback-container"></div>
