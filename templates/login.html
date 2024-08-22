@@ -10,7 +10,8 @@
 </head>
 
 <body>
-    <div class="login-container">
+    <div class="login-wrapper">
+        <div class="login-container">
         <h1>Login</h1>
         <form method="POST" action="{{ url_for('login') }}">
             <label for="pin">Enter PIN:</label>
@@ -26,6 +27,7 @@
                 </div>
             {% endif %}
         {% endwith %}
+        </div>
     </div>
 </body>
 

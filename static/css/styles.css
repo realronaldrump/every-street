@@ -9,13 +9,21 @@
 
 .login-container {
   max-width: 400px;
-  margin: 0 auto;
+  width: 100%;
   padding: 2rem;
   background-color: var(--secondary-bg);
   border-radius: 20px;
   box-shadow: 10px 10px 20px rgba(0, 0, 0, 0.3), 
               -10px -10px 20px rgba(255, 255, 255, 0.05);
   text-align: center;
+}
+
+.login-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  padding: 1rem;
 }
 
 .login-container h1 {
