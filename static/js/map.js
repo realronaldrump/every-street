@@ -21,6 +21,7 @@ function showFeedback(message, type = 'info') {
   setTimeout(() => {
     feedbackElement.remove();
   }, 5000);
+}
 
 // Function to initialize the map
 function initializeMap() {
@@ -590,6 +591,33 @@ document.addEventListener('DOMContentLoaded', function() {
   });
 
   initializeMap();
+  searchBtn.addEventListener('click', async () => {
+    const query = searchInput.value;
+    if (!query) {
+      showFeedback('Please enter a location to search for.', 'warning');
+      return;
+    }
+
+    try {
+      const response = await fetch(`/search_location?query=${query}`);
+      const data = await response.json();
+
+      if (data.error) {
+        showFeedback(data.error, 'error');
+      } else {
+        const { latitude, longitude, address } = data;
+        map.setView([latitude, longitude], 13);
+        L.marker([latitude, longitude]).addTo(map)
+          .bindPopup(`<b>${address}</b>`)
+          .openPopup();
+        showFeedback(`Found location: ${address}`, 'success');
+      }
+    } catch (error) {
+      console.error('Error searching for location:', error);
+      showFeedback('Error searching for location. Please try again.', 'error');
+    }
+  });
+
   initializeSocketIO();
   setupEventListeners();
   initializeApp();
