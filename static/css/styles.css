@@ -354,19 +354,18 @@ button {
   transition: background-color 0.3s ease, box-shadow 0.3s ease;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
 }
-
 /* Search Container */
 .search-container {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 10px; /* Adjust the gap between the input and button as needed */
+  position: relative; /* Ensure the suggestions container is positioned relative to the input */
 }
 
 /* Search Styles */
 #searchInput {
-  width: 70%;
-  max-width: 100%-500px; /* Adjust the max-width as needed */
+  flex: 1;
   padding: 10px;
   border: 1px solid #444;
   border-radius: 5px;
@@ -391,10 +390,12 @@ button {
 /* Suggestions container */
 #searchSuggestions {
   position: absolute;
+  top: 100%;
+  left: 0;
+  width: calc(100% - 110px); /* Make the suggestions container the same width as the input */
   background-color: var(--secondary-bg);
   border: 1px solid #444;
   border-radius: 5px;
-  width: calc(100% - 110px);
   max-height: 200px;
   overflow-y: auto;
   z-index: 1000;
@@ -408,7 +409,6 @@ button {
 #searchSuggestions div:hover {
   background-color: var(--tertiary-bg);
 }
-
 
 /* Blinking Marker */
 .blinking-marker {
