@@ -36,6 +36,16 @@ logging.info("Logging initialized")
 
 load_dotenv()
 
+from functools import wraps
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get("authenticated"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated_function
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
 app.config["PIN"] = os.getenv("PIN", "1234")
@@ -260,16 +270,6 @@ def update_historical_data():
     except Exception as e:
         logging.error(f"An error occurred during the update process: {e}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-
-from functools import wraps
-
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if not session.get("authenticated"):
-            return redirect(url_for("login"))
-        return f(*args, **kwargs)
-    return decorated_function
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
