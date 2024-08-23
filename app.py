@@ -303,7 +303,9 @@ def update_historical_data():
     loop = asyncio.get_event_loop()
     try:
         logging.info("Starting historical data update process")
+        logging.info("Calling update_historical_data")
         loop.run_until_complete(geojson_handler.update_historical_data())
+        logging.info("update_historical_data completed")
         logging.info("Historical data update process completed")
         return jsonify({"message": "Historical data updated successfully!"}), 200
     except Exception as e:

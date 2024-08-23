@@ -277,7 +277,9 @@ class GeoJSONHandler:
 
     async def update_historical_data(self, fetch_all=False):
         try:
+            logging.info("Starting update_historical_data")
             await self.bouncie_api.client.get_access_token()
+            logging.info("Access token obtained")
 
             if fetch_all:
                 latest_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
@@ -321,7 +323,9 @@ class GeoJSONHandler:
                         logging.info(f"No trips data found for {date_str}")
                     current_date += timedelta(days=1)
 
+            logging.info(f"Fetched {len(all_trips)} trips")
             new_features = self.create_geojson_features_from_trips(all_trips)
+            logging.info(f"Created {len(new_features)} new features from trips")
             if new_features:
                 # Filter out features that already exist in historical_geojson_features
                 existing_timestamps = set(feature["properties"]["timestamp"] for feature in self.historical_geojson_features)
@@ -357,7 +361,7 @@ class GeoJSONHandler:
                 logging.info("No new features created from fetched trips.")
 
         except Exception as e:
-            logging.error(f"An error occurred during historical data update: {e}")
+            logging.error(f"An error occurred during historical data update: {e}", exc_info=True)
 
     def create_geojson_features_from_trips(self, data):
         features = []
