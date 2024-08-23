@@ -362,6 +362,7 @@ class GeoJSONHandler:
 
         except Exception as e:
             logging.error(f"An error occurred during historical data update: {e}", exc_info=True)
+            raise
 
     def create_geojson_features_from_trips(self, data):
         features = []

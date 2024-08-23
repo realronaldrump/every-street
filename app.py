@@ -299,6 +299,7 @@ def search_suggestions():
         return jsonify({"error": "An error occurred during the search"}), 500
 
 
+@app.route("/update_historical_data", methods=["POST"])
 def update_historical_data():
     loop = asyncio.get_event_loop()
     try:

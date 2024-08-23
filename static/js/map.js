@@ -502,7 +502,7 @@ function setupEventListeners() {
       updateDataBtn.textContent = "Updating...";
       showFeedback('Checking for new driving data...', 'info');
 
-      const response = await fetch('/update_historical_data');
+      const response = await fetch('/update_historical_data', { method: 'POST' });
       const data = await response.json();
 
       if (response.ok) {
