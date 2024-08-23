@@ -7,3 +7,4 @@ Flask-SocketIO
 lxml
 eventlet
 rtree
+python-dotenv
