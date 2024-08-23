@@ -9,7 +9,6 @@ from shapely.geometry import Polygon, LineString, MultiLineString
 from rtree import index
 
 from bouncie_api import BouncieAPI
-from github_updater import GitHubUpdater
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
@@ -17,7 +16,6 @@ VEHICLE_ID = os.getenv("VEHICLE_ID")
 class GeoJSONHandler:
     def __init__(self):
         self.bouncie_api = BouncieAPI()
-        self.github_updater = GitHubUpdater()
         self.historical_geojson_features = []
         self.fetched_trip_timestamps = set()  # Store timestamps of fetched trips
         self.idx = index.Index()  # Initialize the R-tree index
@@ -344,7 +342,6 @@ class GeoJSONHandler:
                             f,
                         )
 
-                    self.github_updater.push_changes()
 
                     # Update the spatial index after adding new features
                     for i, feature in enumerate(unique_new_features):
