@@ -79,7 +79,6 @@ class GPXExporter:
                                 .isoformat()
                             )
                         elif isinstance(timestamp, tuple) and len(timestamp) >= 1:
-                            # Assuming the first element of the tuple is the timestamp
                             time.text = (
                                 datetime.utcfromtimestamp(timestamp[0])
                                 .replace(tzinfo=timezone.utc)
