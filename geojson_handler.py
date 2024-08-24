@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timedelta, timezone
+from collections import defaultdict
 
 import aiohttp
 from shapely.geometry import Polygon, LineString, MultiLineString
@@ -12,24 +13,22 @@ from bouncie_api import BouncieAPI
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
-
 class GeoJSONHandler:
     def __init__(self):
         self.bouncie_api = BouncieAPI()
         self.historical_geojson_features = []
-        self.fetched_trip_timestamps = set()  # Store timestamps of fetched trips
-        self.idx = index.Index()  # Initialize the R-tree index
+        self.fetched_trip_timestamps = set()
+        self.idx = index.Index()
+        self.monthly_data = defaultdict(list)
 
     def _flatten_coordinates(self, coords):
         """Helper function to flatten a nested list of coordinates."""
         flat_coords = []
         for item in coords:
             if isinstance(item, list):
-                # Check if the item is a coordinate pair (list of two numbers)
                 if len(item) == 2 and all(isinstance(c, (float, int)) for c in item):
                     flat_coords.append(item)
                 else:
-                    # Recursively flatten nested lists
                     flat_coords.extend(self._flatten_coordinates(item))
             else:
                 logging.warning(f"Unexpected item in coordinates: {item}")
@@ -38,23 +37,11 @@ class GeoJSONHandler:
     def _calculate_bounding_box(self, feature):
         """Helper function to calculate the bounding box of a feature."""
         coords = feature["geometry"]["coordinates"]
-
-        # Flatten the coordinates
         coords = self._flatten_coordinates(coords)
-
-        # Initialize min and max values with the first coordinate
-        min_lon = coords[0][0]
-        min_lat = coords[0][1]
-        max_lon = coords[0][0]
-        max_lat = coords[0][1]
-
-        # Iterate through all coordinates to find the actual min and max values
+        min_lon, min_lat = max_lon, max_lat = coords[0]
         for lon, lat in coords:
-            min_lon = min(min_lon, lon)
-            max_lon = max(max_lon, lon)
-            min_lat = min(min_lat, lat)
-            max_lat = max(max_lat, lat)
-
+            min_lon, max_lon = min(min_lon, lon), max(max_lon, lon)
+            min_lat, max_lat = min(min_lat, lat), max(max_lat, lat)
         return (min_lon, min_lat, max_lon, max_lat)
 
     def load_waco_boundary(self, boundary_type):
@@ -64,9 +51,7 @@ class GeoJSONHandler:
                 data = json.load(f)
                 features = data.get("features", [])
                 if features:
-                    # Assuming the first feature contains the boundary coordinates
-                    boundary_coordinates = features[0]["geometry"]["coordinates"]
-                    return boundary_coordinates
+                    return features[0]["geometry"]["coordinates"]
                 else:
                     logging.error(f"No features found in {boundary_type}.geojson")
                     return None
@@ -79,92 +64,59 @@ class GeoJSONHandler:
 
     def clip_route_to_boundary(self, feature, waco_limits):
         try:
-            # Check that waco_limits is a list of lists
             if not all(isinstance(sublist, list) for sublist in waco_limits):
-                raise ValueError(
-                    "waco_limits must be a list of lists representing coordinates."
-                )
+                raise ValueError("waco_limits must be a list of lists representing coordinates.")
 
-            # Flatten the waco_limits list to a list of tuples (handling extra nesting)
             flattened_waco_limits = [
                 (coord[0], coord[1])
                 for coord in self._flatten_coordinates(waco_limits)
             ]
 
-            # Ensure that the flattened list has more than one point
             if len(flattened_waco_limits) <= 1:
                 raise ValueError(f"waco_limits invalid: {flattened_waco_limits}")
 
             logging.debug(f"Flattened Waco Limits: {flattened_waco_limits}")
 
-            # Create the Waco polygon, handling potential holes
             if len(waco_limits) > 1:
-                # If there are multiple rings, the first is the outer boundary,
-                # and the rest are holes
-                exterior_coords = waco_limits[0][0]  # Extract the first ring
-                holes = [ring[0] for ring in waco_limits[1:]]  # Extract other rings
+                exterior_coords = waco_limits[0][0]
+                holes = [ring[0] for ring in waco_limits[1:]]
                 waco_polygon = Polygon(exterior_coords, holes=holes)
             else:
-                # If there's only one ring, it's the outer boundary
-                waco_polygon = Polygon(waco_limits[0][0])  # Extract the first ring
+                waco_polygon = Polygon(waco_limits[0][0])
 
-            # Apply a small buffer to resolve topology issues
             waco_polygon = waco_polygon.buffer(0)
 
-            # Extract and validate the route coordinates
             route_geometry = feature["geometry"]
             route_type = route_geometry["type"]
             route_coords = route_geometry.get("coordinates", [])
 
-            # Handle different geometry types
             if route_type == "LineString":
-                # Ensure coordinates are in (longitude, latitude) order
                 route_coords = [(coord[0], coord[1]) for coord in route_coords]
-
-                # Handle single-point routes
                 if len(route_coords) == 1:
-                    logging.warning(
-                        f"Single-point route encountered, skipping: {route_coords}"
-                    )
-                    return None  # Skip single-point routes
-
+                    logging.warning(f"Single-point route encountered, skipping: {route_coords}")
+                    return None
                 route_line = LineString(route_coords)
                 clipped_geometry = route_line.intersection(waco_polygon)
-
             elif route_type == "MultiLineString":
                 clipped_lines = []
                 for line_coords in route_coords:
-                    # Ensure coordinates are in (longitude, latitude) order
                     line_coords = [(coord[0], coord[1]) for coord in line_coords]
-
                     route_line = LineString(line_coords)
                     clipped_line = route_line.intersection(waco_polygon)
-
-                    # Only add valid, non-empty LineStrings
-                    if (
-                        not clipped_line.is_empty
-                        and clipped_line.is_valid
-                        and isinstance(clipped_line, LineString)
-                    ):
+                    if not clipped_line.is_empty and clipped_line.is_valid and isinstance(clipped_line, LineString):
                         clipped_lines.append(list(clipped_line.coords))
-
                 if clipped_lines:
                     clipped_geometry = MultiLineString(clipped_lines)
                 else:
-                    return None  # No clipped lines
-
+                    return None
             else:
                 logging.warning(f"Unsupported geometry type: {route_type}")
                 return None
 
-            # Handle empty or invalid geometries
             if clipped_geometry.is_empty or not clipped_geometry.is_valid:
-                logging.debug(
-                    "Clipped geometry is empty or invalid, skipping this feature."
-                )
+                logging.debug("Clipped geometry is empty or invalid, skipping this feature.")
                 return None
 
-            # Create the clipped feature
             return {
                 "type": "Feature",
                 "geometry": {
@@ -175,7 +127,6 @@ class GeoJSONHandler:
                 },
                 "properties": feature["properties"],
             }
-
         except Exception as e:
             logging.error(f"Error clipping route to boundary: {e}")
             logging.debug(f"Feature: {feature}")
@@ -184,94 +135,34 @@ class GeoJSONHandler:
     async def load_historical_data(self):
         if self.historical_geojson_features:
             logging.info("Historical data already loaded.")
-            return  # Data already loaded
+            return
 
         try:
-            logging.info("Attempting to load historical data from file.")
-            with open("static/historical_data.geojson", "r") as f:
-                data = json.load(f)
-                self.historical_geojson_features = data.get("features", [])
-                logging.info(
-                    f"Loaded {len(self.historical_geojson_features)} features from historical_data.geojson"
-                )
+            logging.info("Loading historical data from monthly files.")
+            monthly_files = [f for f in os.listdir('static') if f.startswith('historical_data_') and f.endswith('.geojson')]
+            
+            for file in monthly_files:
+                with open(f"static/{file}", "r") as f:
+                    data = json.load(f)
+                    month_features = data.get("features", [])
+                    self.historical_geojson_features.extend(month_features)
+                    
+                    month_year = file.split('_')[2].split('.')[0]
+                    self.monthly_data[month_year] = month_features
 
-                if not self.historical_geojson_features:
-                    logging.warning("Historical data file exists but contains no features.")
-                    await self.update_historical_data(fetch_all=True)
-                else:
-                    # Create the spatial index
-                    for i, feature in enumerate(self.historical_geojson_features):
-                        bbox = self._calculate_bounding_box(feature)
-                        self.idx.insert(i, bbox)
+            logging.info(f"Loaded {len(self.historical_geojson_features)} features from {len(monthly_files)} monthly files")
 
-        except FileNotFoundError:
-            logging.info(
-                "No existing GeoJSON file found. Fetching historical data from Bouncie."
-            )
-            await self.update_historical_data(fetch_all=True)
-        except json.JSONDecodeError:
-            logging.error("Error decoding JSON from historical_data.geojson. File may be corrupted.")
-            await self.update_historical_data(fetch_all=True)
+            if not self.historical_geojson_features:
+                logging.warning("No historical data found in monthly files.")
+                await self.update_historical_data(fetch_all=True)
+            else:
+                for i, feature in enumerate(self.historical_geojson_features):
+                    bbox = self._calculate_bounding_box(feature)
+                    self.idx.insert(i, bbox)
+
         except Exception as e:
             logging.error(f"Unexpected error loading historical data: {str(e)}")
             raise
-
-        logging.info(f"Total features after loading: {len(self.historical_geojson_features)}")
-
-    def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits):
-        start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc
-        )
-        end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc
-        )
-        end_datetime += timedelta(days=1) - timedelta(seconds=1)
-
-        filtered_features = []
-
-        logging.info(
-            f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}"
-        )
-        logging.info(f"Total features before filtering: {len(self.historical_geojson_features)}")
-
-        for i, feature in enumerate(self.historical_geojson_features):
-            timestamp = feature["properties"].get("timestamp")
-            if timestamp is not None:
-                route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-                logging.debug(f"Feature {i} timestamp: {route_datetime}")
-                if start_datetime <= route_datetime <= end_datetime:
-                    logging.debug(f"Feature {i} within date range")
-                    if filter_waco and waco_limits:
-                        # Clip the route to the Waco boundary
-                        clipped_route = self.clip_route_to_boundary(
-                            feature, waco_limits
-                        )
-                        if clipped_route:
-                            filtered_features.append(clipped_route)
-                            logging.debug(f"Feature {i} clipped and added")
-                        else:
-                            logging.debug(f"Feature {i} clipped but resulted in empty geometry")
-                    else:
-                        # No Waco filter, add the entire route
-                        filtered_features.append(feature)
-                        logging.debug(f"Feature {i} added (no Waco filter)")
-                else:
-                    logging.debug(f"Feature {i} outside date range: {route_datetime}")
-            else:
-                logging.warning(f"Feature {i} has no timestamp")
-
-        logging.info(f"Filtered {len(filtered_features)} features")
-        if not filtered_features:
-            logging.warning("No features found after filtering")
-        return filtered_features
-
-    def get_feature_timestamps(self, feature):
-        coordinates = feature["geometry"]["coordinates"]
-        timestamps = []
-        for coord in coordinates:
-            if len(coord) >= 5:  # Ensure the coordinate has a timestamp
-                timestamps.append(coord[4])
-        return timestamps
 
     async def update_historical_data(self, fetch_all=False):
         try:
@@ -281,24 +172,15 @@ class GeoJSONHandler:
 
             if fetch_all:
                 latest_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
-                logging.info("Fetching all historical data from Bouncie.")
             elif self.historical_geojson_features:
                 latest_timestamp = max(
                     feature["properties"]["timestamp"]
                     for feature in self.historical_geojson_features
                     if feature["properties"].get("timestamp") is not None
                 )
-                latest_date = datetime.fromtimestamp(
-                    latest_timestamp, tz=timezone.utc
-                ) 
-                logging.info(
-                    f"Fetching historical data from Bouncie since {latest_date}."
-                )
+                latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
             else:
                 latest_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
-                logging.info(
-                    "Fetching historical data from Bouncie since 2020-01-01."
-                )
 
             today = datetime.now(tz=timezone.utc)
             all_trips = []
@@ -324,42 +206,80 @@ class GeoJSONHandler:
             logging.info(f"Fetched {len(all_trips)} trips")
             new_features = self.create_geojson_features_from_trips(all_trips)
             logging.info(f"Created {len(new_features)} new features from trips")
+
             if new_features:
-                # Filter out features that already exist in historical_geojson_features
-                existing_timestamps = set(feature["properties"]["timestamp"] for feature in self.historical_geojson_features)
-                unique_new_features = [feature for feature in new_features if feature["properties"]["timestamp"] not in existing_timestamps]
+                self._update_monthly_files(new_features)
+                self.historical_geojson_features.extend(new_features)
                 
-                if unique_new_features:
-                    self.historical_geojson_features.extend(unique_new_features)
-                    logging.info(f"Added {len(unique_new_features)} new unique features.")
-
-                    with open("static/historical_data.geojson", "w") as f:
-                        json.dump(
-                            {
-                                "type": "FeatureCollection",
-                                "features": self.historical_geojson_features,
-                            },
-                            f,
-                        )
-
-
-                    # Update the spatial index after adding new features
-                    for i, feature in enumerate(unique_new_features):
-                        bbox = self._calculate_bounding_box(feature)
-                        self.idx.insert(
-                            len(self.historical_geojson_features)
-                            - len(unique_new_features)
-                            + i,
-                            bbox,
-                        )
-                else:
-                    logging.info("No new unique features to add.")
-            else:
-                logging.info("No new features created from fetched trips.")
+                for i, feature in enumerate(new_features):
+                    bbox = self._calculate_bounding_box(feature)
+                    self.idx.insert(len(self.historical_geojson_features) - len(new_features) + i, bbox)
 
         except Exception as e:
             logging.error(f"An error occurred during historical data update: {e}", exc_info=True)
             raise
+
+    def _update_monthly_files(self, new_features):
+        for feature in new_features:
+            timestamp = feature["properties"]["timestamp"]
+            date = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+            month_year = date.strftime("%Y-%m")
+            
+            self.monthly_data[month_year].append(feature)
+
+        for month_year, features in self.monthly_data.items():
+            filename = f"static/historical_data_{month_year}.geojson"
+            with open(filename, "w") as f:
+                json.dump({"type": "FeatureCollection", "features": features}, f)
+
+        logging.info(f"Updated monthly files with {len(new_features)} new features")
+
+    def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, features=None):
+        start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_datetime += timedelta(days=1) - timedelta(seconds=1)
+
+        filtered_features = []
+
+        logging.info(f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}")
+        
+        features_to_filter = features if features is not None else self.historical_geojson_features
+        logging.info(f"Total features before filtering: {len(features_to_filter)}")
+
+        for i, feature in enumerate(features_to_filter):
+            timestamp = feature["properties"].get("timestamp")
+            if timestamp is not None:
+                route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
+                logging.debug(f"Feature {i} timestamp: {route_datetime}")
+                if start_datetime <= route_datetime <= end_datetime:
+                    logging.debug(f"Feature {i} within date range")
+                    if filter_waco and waco_limits:
+                        clipped_route = self.clip_route_to_boundary(feature, waco_limits)
+                        if clipped_route:
+                            filtered_features.append(clipped_route)
+                            logging.debug(f"Feature {i} clipped and added")
+                        else:
+                            logging.debug(f"Feature {i} clipped but resulted in empty geometry")
+                    else:
+                        filtered_features.append(feature)
+                        logging.debug(f"Feature {i} added (no Waco filter)")
+                else:
+                    logging.debug(f"Feature {i} outside date range: {route_datetime}")
+            else:
+                logging.warning(f"Feature {i} has no timestamp")
+
+        logging.info(f"Filtered {len(filtered_features)} features")
+        if not filtered_features:
+            logging.warning("No features found after filtering")
+        return filtered_features
+
+    def get_feature_timestamps(self, feature):
+        coordinates = feature["geometry"]["coordinates"]
+        timestamps = []
+        for coord in coordinates:
+            if len(coord) >= 5:
+                timestamps.append(coord[4])
+        return timestamps
 
     def create_geojson_features_from_trips(self, data):
         features = []
@@ -376,7 +296,6 @@ class GeoJSONHandler:
                         lat, lon, _, _, timestamp, _ = point
                         coordinates.append([lon, lat])
 
-            # Check if coordinates list has more than one point
             if len(coordinates) > 1 and timestamp is not None:
                 feature = {
                     "type": "Feature",

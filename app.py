@@ -2,9 +2,8 @@ import os
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
-import os
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from flask import Flask, render_template, jsonify, request, Response, redirect, url_for, session, flash
 from flask_socketio import SocketIO
 from dotenv import load_dotenv
@@ -60,9 +59,15 @@ geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 bouncie_api = BouncieAPI()
 gpx_exporter = GPXExporter(geojson_handler)  # Pass the geojson_handler instance
 
-# Load historical data on startup
-asyncio.run(geojson_handler.load_historical_data())
+# Flag to check if historical data has been loaded
+historical_data_loaded = False
 
+@app.before_request
+def load_historical_data():
+    global historical_data_loaded
+    if not historical_data_loaded:
+        asyncio.run(geojson_handler.load_historical_data())
+        historical_data_loaded = True
 LIVE_ROUTE_DATA_FILE = "live_route_data.geojson"
 
 def load_live_route_data():
@@ -174,13 +179,21 @@ def get_historical_data():
         if filter_waco and waco_boundary != "none":
             waco_limits = geojson_handler.load_waco_boundary(waco_boundary)
 
-        filtered_features = geojson_handler.filter_geojson_features(
-            start_date, end_date, filter_waco, waco_limits
-        )
-
-        # Ensure a valid GeoJSON response even if no features are found
-        if filtered_features is None:
-            filtered_features = []
+        filtered_features = []
+        start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
+        end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
+        
+        current_month = start_datetime.replace(day=1)
+        while current_month <= end_datetime:
+            month_year = current_month.strftime("%Y-%m")
+            if month_year in geojson_handler.monthly_data:
+                month_features = geojson_handler.filter_geojson_features(
+                    start_date, end_date, filter_waco, waco_limits, 
+                    geojson_handler.monthly_data[month_year]
+                )
+                filtered_features.extend(month_features)
+            current_month += timedelta(days=32)
+            current_month = current_month.replace(day=1)
 
         return jsonify({"type": "FeatureCollection", "features": filtered_features})
 
@@ -194,11 +207,7 @@ def get_historical_data():
 @app.route("/live_data")
 def get_live_data():
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_closed():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        bouncie_data = loop.run_until_complete(bouncie_api.get_latest_bouncie_data())
+        bouncie_data = asyncio.run(bouncie_api.get_latest_bouncie_data())
         if bouncie_data:
             socketio.emit("live_update", bouncie_data)
 
@@ -219,9 +228,6 @@ def get_live_data():
     except Exception as e:
         logging.error(f"An error occurred while fetching live data: {e}")
         return jsonify({"error": str(e)}), 500
-    finally:
-        # Removed loop.close() from here
-        pass
 
 @app.route("/trip_metrics")
 def get_trip_metrics():
@@ -238,13 +244,6 @@ def export_gpx():
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
 
     try:
-        # Ensure historical data is loaded
-        # (This is already done on startup, so this might be redundant)
-        # loop = asyncio.new_event_loop()
-        # asyncio.set_event_loop(loop)
-        # loop.run_until_complete(geojson_handler.load_historical_data())
-        # loop.close()
-
         gpx_data = gpx_exporter.export_to_gpx(
             start_date, end_date, filter_waco, waco_boundary
         )
@@ -298,15 +297,11 @@ def search_suggestions():
         logging.error(f"Error during location search: {e}")
         return jsonify({"error": "An error occurred during the search"}), 500
 
-
 @app.route("/update_historical_data", methods=["POST"])
 def update_historical_data():
-    loop = asyncio.get_event_loop()
     try:
         logging.info("Starting historical data update process")
-        logging.info("Calling update_historical_data")
-        loop.run_until_complete(geojson_handler.update_historical_data())
-        logging.info("update_historical_data completed")
+        asyncio.run(geojson_handler.update_historical_data())
         logging.info("Historical data update process completed")
         return jsonify({"message": "Historical data updated successfully!"}), 200
     except Exception as e:

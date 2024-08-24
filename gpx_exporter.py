@@ -18,14 +18,27 @@ class GPXExporter:
                 waco_limits = self.geojson_handler.load_waco_boundary(waco_boundary)
                 logging.info(f"Loaded Waco limits: {waco_limits is not None}")
 
-            filtered_features = self.geojson_handler.filter_geojson_features(
-                start_date, end_date, filter_waco, waco_limits
-            )
+            filtered_features = []
+            start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
+            end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
+            
+            current_month = start_datetime.replace(day=1)
+            while current_month <= end_datetime:
+                month_year = current_month.strftime("%Y-%m")
+                if month_year in self.geojson_handler.monthly_data:
+                    month_features = self.geojson_handler.filter_geojson_features(
+                        start_date, end_date, filter_waco, waco_limits, 
+                        self.geojson_handler.monthly_data[month_year]
+                    )
+                    filtered_features.extend(month_features)
+                current_month += timedelta(days=32)
+                current_month = current_month.replace(day=1)
+
             logging.info(f"Number of filtered features: {len(filtered_features)}")
 
             if not filtered_features:
                 logging.warning("No features found after filtering")
-                return None  # Return None if no features are found
+                return None
 
             gpx = etree.Element("gpx", version="1.1", creator="EveryStreetApp")
 

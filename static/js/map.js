@@ -237,10 +237,10 @@ async function displayHistoricalData() {
     const totalDistance = calculateTotalDistance(data.features);
     document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
 
-    showFeedback(`Displayed ${data.features.length} historical features`, 'success');
+    showFeedback(`Displayed ${data.features.length} historical features from monthly data`, 'success');
   } catch (error) {
     console.error('Error displaying historical data:', error);
-    showFeedback('Error loading historical data. Please try again.', 'error');
+    showFeedback('Error loading monthly historical data. Please try again.', 'error');
   }
 }
 
