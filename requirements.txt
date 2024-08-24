@@ -8,3 +8,4 @@ lxml
 eventlet
 rtree
 python-dotenv
+redis

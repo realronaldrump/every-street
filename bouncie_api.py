@@ -19,7 +19,6 @@ DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 
 ENABLE_GEOCODING = True
 
-
 class BouncieAPI:
     def __init__(self):
         self.client = AsyncRESTAPIClient(
@@ -90,9 +89,7 @@ class BouncieAPI:
     async def reverse_geocode(self, lat, lon, retries=3):
         for attempt in range(retries):
             try:
-                location = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: self.geolocator.reverse((lat, lon), addressdetails=True)
-                )
+                location = await asyncio.to_thread(self.geolocator.reverse, (lat, lon), addressdetails=True)
                 if location:
                     address = location.raw["address"]
                     place = address.get("place", "")
@@ -131,7 +128,7 @@ class BouncieAPI:
                 logging.error(f"Error fetching data for {date}. Status: {response.status}")
                 return None
 
-    def get_trip_metrics(self):
+    async def get_trip_metrics(self):
         time_since_update = datetime.now(timezone.utc) - self.live_trip_data[
             "last_updated"
         ]

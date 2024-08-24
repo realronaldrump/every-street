@@ -2,11 +2,12 @@ import os
 import asyncio
 import json
 import logging
+import aiofiles
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 
 import aiohttp
-from shapely.geometry import Polygon, LineString, MultiLineString
+from shapely.geometry import Polygon, LineString, MultiLineString, box, shape
 from rtree import index
 
 from bouncie_api import BouncieAPI
@@ -171,7 +172,7 @@ class GeoJSONHandler:
             logging.info("Access token obtained")
 
             if fetch_all:
-                latest_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
             elif self.historical_geojson_features:
                 latest_timestamp = max(
                     feature["properties"]["timestamp"]
@@ -180,7 +181,7 @@ class GeoJSONHandler:
                 )
                 latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
             else:
-                latest_date = datetime(2020, 1, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
 
             today = datetime.now(tz=timezone.utc)
             all_trips = []
@@ -208,7 +209,7 @@ class GeoJSONHandler:
             logging.info(f"Created {len(new_features)} new features from trips")
 
             if new_features:
-                self._update_monthly_files(new_features)
+                await self._update_monthly_files(new_features)
                 self.historical_geojson_features.extend(new_features)
                 
                 for i, feature in enumerate(new_features):
@@ -219,7 +220,7 @@ class GeoJSONHandler:
             logging.error(f"An error occurred during historical data update: {e}", exc_info=True)
             raise
 
-    def _update_monthly_files(self, new_features):
+    async def _update_monthly_files(self, new_features):
         for feature in new_features:
             timestamp = feature["properties"]["timestamp"]
             date = datetime.fromtimestamp(timestamp, tz=timezone.utc)
@@ -229,12 +230,12 @@ class GeoJSONHandler:
 
         for month_year, features in self.monthly_data.items():
             filename = f"static/historical_data_{month_year}.geojson"
-            with open(filename, "w") as f:
-                json.dump({"type": "FeatureCollection", "features": features}, f)
+            async with aiofiles.open(filename, "w") as f:
+                await f.write(json.dumps({"type": "FeatureCollection", "features": features}))
 
         logging.info(f"Updated monthly files with {len(new_features)} new features")
 
-    def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, features=None):
+    def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, features=None, bounds=None):
         start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         end_datetime += timedelta(days=1) - timedelta(seconds=1)
@@ -246,6 +247,9 @@ class GeoJSONHandler:
         features_to_filter = features if features is not None else self.historical_geojson_features
         logging.info(f"Total features before filtering: {len(features_to_filter)}")
 
+        if bounds:
+            bounding_box = box(bounds[0], bounds[1], bounds[2], bounds[3])
+
         for i, feature in enumerate(features_to_filter):
             timestamp = feature["properties"].get("timestamp")
             if timestamp is not None:
@@ -253,6 +257,13 @@ class GeoJSONHandler:
                 logging.debug(f"Feature {i} timestamp: {route_datetime}")
                 if start_datetime <= route_datetime <= end_datetime:
                     logging.debug(f"Feature {i} within date range")
+                    
+                    # Apply bounding box filter if provided
+                    if bounds:
+                        feature_geom = shape(feature['geometry'])
+                        if not feature_geom.intersects(bounding_box):
+                            continue
+
                     if filter_waco and waco_limits:
                         clipped_route = self.clip_route_to_boundary(feature, waco_limits)
                         if clipped_route:

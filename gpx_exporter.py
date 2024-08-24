@@ -6,7 +6,7 @@ class GPXExporter:
     def __init__(self, geojson_handler):
         self.geojson_handler = geojson_handler
 
-    def export_to_gpx(self, start_date, end_date, filter_waco, waco_boundary):
+    async def export_to_gpx(self, start_date, end_date, filter_waco, waco_boundary):
         try:
             logging.info(f"Exporting GPX for date range: {start_date} to {end_date}")
             logging.info(f"Filter Waco: {filter_waco}, Waco Boundary: {waco_boundary}")
@@ -66,14 +66,9 @@ class GPXExporter:
                     if not isinstance(coord, (list, tuple)) or len(coord) < 2:
                         logging.warning(f"Invalid coordinate: {coord}")
                         continue
-
-                    # Ensure lat is coord[1] and lon is coord[0] (as per GPX standard)
-                    lat = str(coord[1])
-                    lon = str(coord[0])
-
-                    # Create trkpt element with correct latitude and longitude attributes
-                    trkpt = etree.SubElement(trkseg, "trkpt", lat=lat, lon=lon)
-
+                    trkpt = etree.SubElement(
+                        trkseg, "trkpt", lat=str(coord[1]), lon=str(coord[0])
+                    )
                     if j < len(timestamps):
                         time = etree.SubElement(trkpt, "time")
                         timestamp = timestamps[j]
