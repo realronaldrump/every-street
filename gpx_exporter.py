@@ -1,8 +1,6 @@
 import logging
 from lxml import etree
-from datetime import datetime, timezone
-from geojson_handler import GeoJSONHandler
-
+from datetime import datetime, timezone, timedelta
 
 class GPXExporter:
     def __init__(self, geojson_handler):
@@ -65,19 +63,35 @@ class GPXExporter:
 
                 logging.info(f"Number of coordinates in feature: {len(coordinates)}")
                 for j, coord in enumerate(coordinates):
-                    if len(coord) < 2:
+                    if not isinstance(coord, (list, tuple)) or len(coord) < 2:
                         logging.warning(f"Invalid coordinate: {coord}")
                         continue
-                    trkpt = etree.SubElement(
-                        trkseg, "trkpt", lat=str(coord[1]), lon=str(coord[0])
-                    )
+
+                    # Ensure lat is coord[1] and lon is coord[0] (as per GPX standard)
+                    lat = str(coord[1])
+                    lon = str(coord[0])
+
+                    # Create trkpt element with correct latitude and longitude attributes
+                    trkpt = etree.SubElement(trkseg, "trkpt", lat=lat, lon=lon)
+
                     if j < len(timestamps):
                         time = etree.SubElement(trkpt, "time")
-                        time.text = (
-                            datetime.utcfromtimestamp(timestamps[j])
-                            .replace(tzinfo=timezone.utc)
-                            .isoformat()
-                        )
+                        timestamp = timestamps[j]
+                        if isinstance(timestamp, (int, float)):
+                            time.text = (
+                                datetime.utcfromtimestamp(timestamp)
+                                .replace(tzinfo=timezone.utc)
+                                .isoformat()
+                            )
+                        elif isinstance(timestamp, tuple) and len(timestamp) >= 1:
+                            # Assuming the first element of the tuple is the timestamp
+                            time.text = (
+                                datetime.utcfromtimestamp(timestamp[0])
+                                .replace(tzinfo=timezone.utc)
+                                .isoformat()
+                            )
+                        else:
+                            logging.warning(f"Invalid timestamp format for coordinate {j} in feature {i+1}: {timestamp}")
                     else:
                         logging.warning(f"No timestamp for coordinate {j} in feature {i+1}")
 
@@ -87,5 +101,5 @@ class GPXExporter:
             logging.info(f"Successfully created GPX data of length: {len(gpx_data)}")
             return gpx_data
         except Exception as e:
-            logging.error(f"Error in export_to_gpx: {str(e)}")
+            logging.error(f"Error in export_to_gpx: {str(e)}", exc_info=True)
             raise

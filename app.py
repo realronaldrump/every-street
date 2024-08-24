@@ -62,12 +62,16 @@ gpx_exporter = GPXExporter(geojson_handler)  # Pass the geojson_handler instance
 # Flag to check if historical data has been loaded
 historical_data_loaded = False
 
+# Add a global variable to track processing state
+is_processing = False
+
 @app.before_request
 def load_historical_data():
     global historical_data_loaded
     if not historical_data_loaded:
         asyncio.run(geojson_handler.load_historical_data())
         historical_data_loaded = True
+
 LIVE_ROUTE_DATA_FILE = "live_route_data.geojson"
 
 def load_live_route_data():
@@ -249,6 +253,7 @@ def export_gpx():
         )
         
         if gpx_data is None:
+            logging.warning("No data found for GPX export")
             return jsonify({"error": "No data found for the specified date range"}), 404
         
         return Response(
@@ -257,7 +262,7 @@ def export_gpx():
             headers={"Content-Disposition": "attachment;filename=export.gpx"},
         )
     except Exception as e:
-        logging.error(f"Error in export_gpx: {str(e)}")
+        logging.error(f"Error in export_gpx: {str(e)}", exc_info=True)
         return jsonify({"error": f"An error occurred while exporting GPX: {str(e)}"}), 500
 
 @app.route("/search_location")
@@ -299,7 +304,13 @@ def search_suggestions():
 
 @app.route("/update_historical_data", methods=["POST"])
 def update_historical_data():
+    global is_processing
+    if is_processing:
+        return jsonify({"error": "Another process is already running"}), 429
+
     try:
+        is_processing = True
+        socketio.emit('processing_start', broadcast=True)
         logging.info("Starting historical data update process")
         asyncio.run(geojson_handler.update_historical_data())
         logging.info("Historical data update process completed")
@@ -307,6 +318,18 @@ def update_historical_data():
     except Exception as e:
         logging.error(f"An error occurred during the update process: {e}")
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+    finally:
+        is_processing = False
+        socketio.emit('processing_end', broadcast=True)
+
+@app.route('/processing_status')
+def processing_status():
+    return jsonify({'isProcessing': is_processing})
+
+@socketio.on('connect')
+def handle_connect():
+    if is_processing:
+        socketio.emit('processing_start', room=request.sid)
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()

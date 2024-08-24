@@ -6,6 +6,10 @@ let currentCoordIndex = 0;
 let drawnItems;
 let selectedWacoBoundary = 'less_goofy'; // Default to the more precise boundary
 
+// New variables for input throttling
+let isProcessing = false;
+const processingQueue = [];
+
 // DOM elements
 let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBtn, stopBtn, playbackSpeedInput, speedValueSpan, wacoBoundarySelect, clearRouteBtn, applyFilterBtn, searchInput, searchBtn;
 
@@ -430,6 +434,17 @@ function initializeSocketIO() {
   socket.on('live_update', (data) => {
     updateLiveData(data);
   });
+  
+  socket.on('processing_start', () => {
+    isProcessing = true;
+    disableUI();
+  });
+
+  socket.on('processing_end', () => {
+    isProcessing = false;
+    enableUI();
+    processQueue();
+  });
 }
 
 // Function to filter routes by a specific period
@@ -476,6 +491,53 @@ function exportToGPX() {
   showFeedback('GPX export completed. Check your downloads.', 'success');
 }
 
+// Function to disable UI elements
+function disableUI() {
+  document.querySelectorAll('button, input, select').forEach(el => {
+    el.disabled = true;
+  });
+  showFeedback('Processing your request...', 'info');
+}
+
+// Function to enable UI elements
+function enableUI() {
+  document.querySelectorAll('button, input, select').forEach(el => {
+    el.disabled = false;
+  });
+}
+
+// Function to process the queue
+function processQueue() {
+  if (processingQueue.length > 0 && !isProcessing) {
+    const nextAction = processingQueue.shift();
+    nextAction();
+  }
+}
+
+// Wrapper function for async operations
+function throttleOperation(operation) {
+  return async function(...args) {
+    if (isProcessing) {
+      processingQueue.push(() => throttleOperation(operation)(...args));
+      return;
+    }
+
+    isProcessing = true;
+    disableUI();
+
+    try {
+      await operation(...args);
+    } catch (error) {
+      console.error('Operation failed:', error);
+      showFeedback('An error occurred. Please try again.', 'error');
+    } finally {
+      isProcessing = false;
+      enableUI();
+      processQueue();
+    }
+  };
+}
+
 // Initialize the application
 async function initializeApp() {
   // Set endDateInput to today's date
@@ -489,22 +551,18 @@ async function initializeApp() {
 
 // Setup event listeners
 function setupEventListeners() {
-  applyFilterBtn.addEventListener('click', async () => {
+  applyFilterBtn.addEventListener('click', throttleOperation(async () => {
     showFeedback('Applying filters...', 'info');
     await loadWacoLimits(wacoBoundarySelect.value);
     await displayHistoricalData();
     showFeedback('Filters applied successfully', 'success');
-  });
+  }));
 
-  updateDataBtn.addEventListener('click', async () => {
+  updateDataBtn.addEventListener('click', throttleOperation(async () => {
     try {
-      updateDataBtn.disabled = true;
-      updateDataBtn.textContent = "Updating...";
       showFeedback('Checking for new driving data...', 'info');
-
       const response = await fetch('/update_historical_data', { method: 'POST' });
       const data = await response.json();
-
       if (response.ok) {
         showFeedback(data.message, 'success');
         await displayHistoricalData();
@@ -514,21 +572,18 @@ function setupEventListeners() {
     } catch (error) {
       console.error('Error updating historical data:', error);
       showFeedback('Error updating historical data. Please try again.', 'error');
-    } finally {
-      updateDataBtn.disabled = false;
-      updateDataBtn.textContent = "Check for new driving data";
     }
-  });
+  }));
 
   wacoBoundarySelect.addEventListener('change', () => {
     selectedWacoBoundary = wacoBoundarySelect.value;
     showFeedback(`Waco boundary changed to ${selectedWacoBoundary}`, 'info');
   });
 
-  clearRouteBtn.addEventListener('click', () => {
+  clearRouteBtn.addEventListener('click', throttleOperation(() => {
     clearLiveRoute();
     showFeedback('Live route cleared', 'info');
-  });
+  }));
 
   playPauseBtn.addEventListener('click', () => {
     togglePlayPause();
@@ -545,7 +600,7 @@ function setupEventListeners() {
     showFeedback(`Playback speed set to ${playbackSpeed.toFixed(1)}x`, 'info');
   });
 
-  searchBtn.addEventListener('click', async () => {
+  searchBtn.addEventListener('click', throttleOperation(async () => {
     const query = searchInput.value;
     if (!query) {
       showFeedback('Please enter a location to search for.', 'warning');
@@ -590,10 +645,15 @@ function setupEventListeners() {
       console.error('Error searching for location:', error);
       showFeedback('Error searching for location. Please try again.', 'error');
     }
-  });
+  }));
 
-  searchInput.addEventListener('input', async () => {
+  searchInput.addEventListener('input', throttleOperation(async () => {
     const query = searchInput.value;
+    const suggestionsContainer = document.getElementById('searchSuggestions');
+    
+    // Clear the suggestions container when input changes
+    suggestionsContainer.innerHTML = '';
+
     if (query.length < 3) {
       return;
     }
@@ -602,22 +662,21 @@ function setupEventListeners() {
       const response = await fetch(`/search_suggestions?query=${query}`);
       const suggestions = await response.json();
 
-      const suggestionsContainer = document.getElementById('searchSuggestions');
-      suggestionsContainer.innerHTML = '';
-
-      suggestions.forEach(suggestion => {
-        const suggestionElement = document.createElement('div');
-        suggestionElement.textContent = suggestion;
-        suggestionElement.addEventListener('click', () => {
-          searchInput.value = suggestion;
-          suggestionsContainer.innerHTML = '';
+      if (suggestions.length > 0) {
+        suggestions.forEach(suggestion => {
+          const suggestionElement = document.createElement('div');
+          suggestionElement.textContent = suggestion.address; // Access the address property
+          suggestionElement.addEventListener('click', () => {
+            searchInput.value = suggestion.address; // Set the input value to the selected address
+            suggestionsContainer.innerHTML = '';
+          });
+          suggestionsContainer.appendChild(suggestionElement);
         });
-        suggestionsContainer.appendChild(suggestionElement);
-      });
+      }
     } catch (error) {
       console.error('Error fetching search suggestions:', error);
     }
-  });
+  }));
 }
 
 // DOMContentLoaded event listener
@@ -639,88 +698,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
   let searchMarker;
 
-  searchBtn.addEventListener('click', async () => {
-      const query = searchInput.value;
-      if (!query) {
-          showFeedback('Please enter a location to search for.', 'warning');
-          return;
-      }
-
-      try {
-          const response = await fetch(`/search_location?query=${query}`);
-          const data = await response.json();
-
-          if (data.error) {
-              showFeedback(data.error, 'error');
-          } else {
-              const { latitude, longitude, address } = data;
-              map.setView([latitude, longitude], 13);
-
-              if (searchMarker) {
-                  map.removeLayer(searchMarker);
-              }
-
-              searchMarker = L.marker([latitude, longitude], {
-                  icon: L.divIcon({
-                      className: 'custom-marker',
-                      iconSize: [30, 30],
-                      html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
-                  })
-              }).addTo(map)
-                .bindPopup(`<b>${address}</b>`)
-                .openPopup();
-
-              showFeedback(`Found location: ${address}`, 'success');
-
-              // Remove the marker after 10 seconds
-              setTimeout(() => {
-                  if (searchMarker) {
-                      map.removeLayer(searchMarker);
-                      searchMarker = null;
-                  }
-              }, 10000);
-          }
-      } catch (error) {
-          console.error('Error searching for location:', error);
-          showFeedback('Error searching for location. Please try again.', 'error');
-      }
-  });
-
-  searchInput.addEventListener('input', async () => {
-      const query = searchInput.value;
-      const suggestionsContainer = document.getElementById('searchSuggestions');
-      
-      // Clear the suggestions container when input changes
-      suggestionsContainer.innerHTML = '';
-
-      if (query.length < 3) {
-          return;
-      }
-
-      try {
-          const response = await fetch(`/search_suggestions?query=${query}`);
-          const suggestions = await response.json();
-
-          if (suggestions.length > 0) {
-              suggestions.forEach(suggestion => {
-                  const suggestionElement = document.createElement('div');
-                  suggestionElement.textContent = suggestion.address; // Access the address property
-                  suggestionElement.addEventListener('click', () => {
-                      searchInput.value = suggestion.address; // Set the input value to the selected address
-                      suggestionsContainer.innerHTML = '';
-                  });
-                  suggestionsContainer.appendChild(suggestionElement);
-              });
-          }
-      } catch (error) {
-          console.error('Error fetching search suggestions:', error);
-      }
-  });
-
   initializeMap();
   initializeSocketIO();
   setupEventListeners();
   initializeApp();
+
+  // Check with the server if any long-running process is active
+  fetch('/processing_status')
+    .then(response => response.json())
+    .then(data => {
+      if (data.isProcessing) {
+        isProcessing = true;
+        disableUI();
+      }
+    })
+    .catch(error => console.error('Error checking processing status:', error));
 });
-
-

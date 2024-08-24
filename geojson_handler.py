@@ -278,7 +278,13 @@ class GeoJSONHandler:
         timestamps = []
         for coord in coordinates:
             if len(coord) >= 5:
-                timestamps.append(coord[4])
+                timestamp = coord[4]
+                if isinstance(timestamp, (int, float)):
+                    timestamps.append(timestamp)
+                elif isinstance(timestamp, tuple) and len(timestamp) >= 1:
+                    timestamps.append(timestamp[0])
+                else:
+                    logging.warning(f"Invalid timestamp format: {timestamp}")
         return timestamps
 
     def create_geojson_features_from_trips(self, data):
