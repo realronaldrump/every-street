@@ -1,4 +1,5 @@
 import os
+from redis import Redis
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
@@ -51,7 +52,8 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
 app.config["PIN"] = os.getenv("PIN", "1234")
 
 # Redis configuration
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
+redis_client = Redis.from_url(redis_url)
 
 geojson_handler = GeoJSONHandler()
 geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)

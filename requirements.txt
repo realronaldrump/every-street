@@ -9,3 +9,5 @@ eventlet
 rtree
 python-dotenv
 redis
+quart
+hypercorn
