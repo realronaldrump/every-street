@@ -52,8 +52,19 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
 app.config["PIN"] = os.getenv("PIN", "1234")
 
 # Redis configuration
-redis_url = os.getenv('REDIS_URL', 'redis://localhost:6379')
-redis_client = Redis.from_url(redis_url)
+redis_url = os.getenv('REDIS_URL')
+if not redis_url or not redis_url.startswith(('redis://', 'rediss://', 'unix://')):
+    redis_url = 'redis://localhost:6379'
+    print(f"Warning: Invalid or missing REDIS_URL. Using default: {redis_url}")
+else:
+    print(f"Using Redis URL: {redis_url}")
+
+try:
+    redis_client = Redis.from_url(redis_url, socket_connect_timeout=5)
+    redis_client.ping()  # Test the connection
+except redis.exceptions.ConnectionError:
+    print("Warning: Redis is not available. Falling back to non-caching mode.")
+    redis_client = None
 
 geojson_handler = GeoJSONHandler()
 geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
