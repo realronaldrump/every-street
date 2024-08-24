@@ -1,9 +1,7 @@
-Flask[async]
 aiohttp
 bounciepy
 geopy
 Shapely
-Flask-SocketIO
 lxml
 eventlet
 rtree
