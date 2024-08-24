@@ -1,19 +1,19 @@
 import os
-from redis import Redis
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-from datetime import datetime, timezone, timedelta
-from quart import Quart, render_template, jsonify, request, Response, redirect, url_for, session, websocket
+from datetime import datetime, timedelta
+import functools
+from quart import Quart, render_template, jsonify, request, Response, redirect, url_for, session
 from quart_cors import cors
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HyperConfig
 from dotenv import load_dotenv
+from redis import Redis
 from bouncie_api import BouncieAPI
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
-from shapely.geometry import Polygon, LineString
 from geopy.geocoders import Nominatim
 import redis
 import gzip
@@ -40,6 +40,7 @@ logging.info("Logging initialized")
 load_dotenv()
 
 def login_required(func):
+    @functools.wraps(func)
     async def wrapper(*args, **kwargs):
         if not session.get("authenticated"):
             return redirect(url_for("login"))
@@ -146,6 +147,8 @@ async def startup():
     task = asyncio.create_task(load_historical_data_background())
     background_tasks.add(task)
     task.add_done_callback(background_tasks.discard)
+    # Debugging line to print available routes
+    logging.info(f"Available routes: {app.url_map}")
 
 async def load_historical_data_background():
     global historical_data_loaded, historical_data_loading
@@ -199,7 +202,7 @@ async def get_historical_data():
 
     # Update cache key to remove pagination parameters
     cache_key = f"historical_data:{start_date}:{end_date}:{filter_waco}:{waco_boundary}:{bounds}"
-    cached_data = redis_client.get(cache_key)
+    cached_data = redis_client.get(cache_key) if redis_client else None
 
     if cached_data:
         return Response(cached_data, mimetype='application/json')
@@ -229,7 +232,8 @@ async def get_historical_data():
         
         # Compress and cache the result
         compressed_data = gzip.compress(json.dumps(result).encode('utf-8'))
-        redis_client.setex(cache_key, 3600, compressed_data)  # Cache for 1 hour
+        if redis_client:
+            redis_client.setex(cache_key, 3600, compressed_data)  # Cache for 1 hour
 
         return Response(compressed_data, mimetype='application/json', headers={'Content-Encoding': 'gzip'})
 
@@ -242,8 +246,6 @@ async def get_live_data():
     try:
         bouncie_data = await bouncie_api.get_latest_bouncie_data()
         if bouncie_data:
-            # await websocket.broadcast(json.dumps({"type": "live_update", "data": bouncie_data}))
-
             new_point = {
                 "type": "Feature",
                 "geometry": {
@@ -336,7 +338,6 @@ async def update_historical_data():
 
     try:
         is_processing = True
-        # await websocket.broadcast(json.dumps({"type": "processing_start"}))
         logging.info("Starting historical data update process")
         await geojson_handler.update_historical_data()
         logging.info("Historical data update process completed")
@@ -346,18 +347,20 @@ async def update_historical_data():
         return jsonify({"error": f"An error occurred: {str(e)}"}), 500
     finally:
         is_processing = False
-        # await websocket.broadcast(json.dumps({"type": "processing_end"}))
 
 @app.route('/processing_status')
 async def processing_status():
     return jsonify({'isProcessing': is_processing})
 
-
 if __name__ == "__main__":
-    config = HyperConfig()
-    config.bind = [f"0.0.0.0:{int(os.environ.get('PORT', 8080))}"]
-    config.use_reloader = False
-
-    loop = asyncio.get_running_loop()
-    loop.create_task(poll_bouncie_api())
-    loop.run_until_complete(serve(app, config))
+    # Create a new event loop and set it as the current event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    # Start the background task
+    asyncio.ensure_future(poll_bouncie_api())
+    
+    hyper_config = HyperConfig()
+    hyper_config.bind = ["0.0.0.0:8080"]
+    hyper_config.workers = 1
+    asyncio.run(serve(app, hyper_config))
