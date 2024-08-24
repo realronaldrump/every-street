@@ -53,17 +53,16 @@ app.config["PIN"] = os.getenv("PIN", "1234")
 
 # Redis configuration
 redis_url = os.getenv('REDIS_URL')
-if not redis_url or not redis_url.startswith(('redis://', 'rediss://', 'unix://')):
-    redis_url = 'redis://localhost:6379'
-    print(f"Warning: Invalid or missing REDIS_URL. Using default: {redis_url}")
+if redis_url and redis_url.startswith(('redis://', 'rediss://', 'unix://')):
+    try:
+        redis_client = Redis.from_url(redis_url, socket_connect_timeout=5)
+        redis_client.ping()  # Test the connection
+        print("Redis connected successfully")
+    except redis.exceptions.ConnectionError:
+        print("Warning: Redis is not available. Falling back to non-caching mode.")
+        redis_client = None
 else:
-    print(f"Using Redis URL: {redis_url}")
-
-try:
-    redis_client = Redis.from_url(redis_url, socket_connect_timeout=5)
-    redis_client.ping()  # Test the connection
-except redis.exceptions.ConnectionError:
-    print("Warning: Redis is not available. Falling back to non-caching mode.")
+    print("Redis URL not set or invalid. Running without Redis.")
     redis_client = None
 
 geojson_handler = GeoJSONHandler()
@@ -196,11 +195,10 @@ async def get_historical_data():
     end_date = request.args.get("endDate", datetime.now().strftime("%Y-%m-%d"))
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
-    page = int(request.args.get("page", 1))
-    per_page = int(request.args.get("per_page", 8000))
     bounds = json.loads(request.args.get("bounds", "null"))
 
-    cache_key = f"historical_data:{start_date}:{end_date}:{filter_waco}:{waco_boundary}:{page}:{per_page}:{bounds}"
+    # Update cache key to remove pagination parameters
+    cache_key = f"historical_data:{start_date}:{end_date}:{filter_waco}:{waco_boundary}:{bounds}"
     cached_data = redis_client.get(cache_key)
 
     if cached_data:
@@ -227,12 +225,7 @@ async def get_historical_data():
             current_month += timedelta(days=32)
             current_month = current_month.replace(day=1)
 
-        # Paginate the results
-        start_index = (page - 1) * per_page
-        end_index = start_index + per_page
-        paginated_features = filtered_features[start_index:end_index]
-
-        result = {"type": "FeatureCollection", "features": paginated_features, "total_features": len(filtered_features)}
+        result = {"type": "FeatureCollection", "features": filtered_features, "total_features": len(filtered_features)}
         
         # Compress and cache the result
         compressed_data = gzip.compress(json.dumps(result).encode('utf-8'))
@@ -365,6 +358,6 @@ if __name__ == "__main__":
     config.bind = [f"0.0.0.0:{int(os.environ.get('PORT', 8080))}"]
     config.use_reloader = False
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     loop.create_task(poll_bouncie_api())
     loop.run_until_complete(serve(app, config))
