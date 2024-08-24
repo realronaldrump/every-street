@@ -152,22 +152,20 @@
                 </div>
             </section>
         </main>
-
-        <!-- Logout Button Form -->
-        <div class="logout-container">
-            <form method="POST" action="{{ url_for('logout') }}">
-                <button type="submit" class="logout-button">Logout</button>
-            </form>
-        </div>
     </div>
 
-    <footer>
+    <footer role="contentinfo">
         <div id="audio-player">
             <audio id="audioPlayer" autoplay controls>
                 <source id="audioSource" src="/static/hypesong.mp3" type="audio/mpeg">
                 Your browser does not support the audio element.
             </audio>
             <button id="skipBtn">Skip</button>
+        </div>
+        <div class="logout-container">
+            <form method="POST" action="{{ url_for('logout') }}">
+                <button type="submit" class="logout-button">Logout</button>
+            </form>
         </div>
     </footer>
 

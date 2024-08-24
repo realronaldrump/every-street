@@ -444,20 +444,45 @@ button:active {
   50% { opacity: 0; }
 }
 
-/* Footer */
+/* Footer Styles */
 footer {
-  margin-top: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   padding: 1rem;
   background-color: var(--secondary-bg);
+  margin-top: auto;
 }
 
+/* Audio Player Styles */
 #audio-player {
   display: flex;
-  justify-content: center;
   align-items: center;
   gap: 1rem;
 }
 
+/* Logout Container Styles */
+.logout-container {
+  margin-left: 1rem; 
+}
+
+/* Logout Button Styles */
+.logout-button {
+  background-color: #f44336; /* Red color */
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  font-size: 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.logout-button:hover {
+  background-color: #d32f2f; /* Darker red on hover */
+}
+
+/* Ensure the audio player does not overflow */
 audio[controls] {
   background-color: var(--tertiary-bg);
   border: none;
@@ -596,24 +621,4 @@ audio[controls] {
   :focus {
     outline: 3px solid HighlightText;
   }
-}
-
-.logout-container {
-  text-align: center;
-  margin: 20px 0; /* Adjust spacing as needed */
-}
-
-.logout-button {
-  background-color: #f44336; /* Red color */
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  font-size: 14px;
-  border-radius: 5px;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-
-.logout-button:hover {
-  background-color: #d32f2f; /* Darker red on hover */
 }
