@@ -9,8 +9,7 @@
 
     <!-- External Stylesheets -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
-    <link rel="stylesheet"
-        href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
     <link rel="preconnect" href="https://fonts.gstatic.com">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/css/styles.css">
@@ -28,7 +27,6 @@
         <header>
             <h1>Every Street</h1>
             <h2>Tracking Davis as he Conquers Every Street in Waco!</h2>
-            </form>
         </header>
 
         <div id="feedback-container"></div>
@@ -50,8 +48,6 @@
                         <div id="searchSuggestions"></div>
                     </div>
                 </div>                
-                
-
                 <div class="filter-group" id="custom-filters">
                     <div class="filter-row">
                         <div class="filter-item">
@@ -156,10 +152,16 @@
                 </div>
             </section>
         </main>
+
+        <!-- Logout Button Form -->
+        <div class="logout-container">
+            <form method="POST" action="{{ url_for('logout') }}">
+                <button type="submit" class="logout-button">Logout</button>
+            </form>
+        </div>
     </div>
 
     <footer>
-    </div>
         <div id="audio-player">
             <audio id="audioPlayer" autoplay controls>
                 <source id="audioSource" src="/static/hypesong.mp3" type="audio/mpeg">
@@ -194,11 +196,6 @@
         audioPlayer.addEventListener('ended', playNextTrack);
         skipBtn.addEventListener('click', playNextTrack);
     </script>
-            <div class="logout-container">
-                <form method="POST" action="{{ url_for('logout') }}">
-                    <button type="submit" class="logout-button">Logout</button>
-                </form>
-            </div>
 </body>
 
 </html>
