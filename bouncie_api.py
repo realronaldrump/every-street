@@ -7,6 +7,7 @@ from bounciepy import AsyncRESTAPIClient
 from geopy.geocoders import Nominatim
 from dotenv import load_dotenv
 import os
+from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day
 
 load_dotenv()
 
@@ -53,9 +54,7 @@ class BouncieAPI:
 
             try:
                 timestamp_iso = stats["lastUpdated"]
-                timestamp_dt = datetime.fromisoformat(
-                    timestamp_iso.replace("Z", "+00:00")
-                )
+                timestamp_dt = parse_date(timestamp_iso)
                 timestamp_unix = int(timestamp_dt.timestamp())
             except Exception as e:
                 logging.error(f"Error converting timestamp: {e}")
@@ -116,8 +115,9 @@ class BouncieAPI:
         return "N/A"
 
     async def fetch_trip_data(self, session, vehicle_id, date, headers):
-        start_time = f"{date}T00:00:00-05:00"
-        end_time = f"{date}T23:59:59-05:00"
+        parsed_date = parse_date(date)
+        start_time = format_date(get_start_of_day(parsed_date))
+        end_time = format_date(get_end_of_day(parsed_date))
         summary_url = f"https://www.bouncie.app/api/vehicles/{vehicle_id}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
         async with session.get(summary_url, headers=headers) as response:
@@ -129,9 +129,7 @@ class BouncieAPI:
                 return None
 
     async def get_trip_metrics(self):
-        time_since_update = datetime.now(timezone.utc) - self.live_trip_data[
-            "last_updated"
-        ]
+        time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
         if time_since_update.total_seconds() > 45:
             self.live_trip_data["data"] = []
 
@@ -164,14 +162,8 @@ class BouncieAPI:
             "total_distance": round(total_distance, 2),
             "total_time": self._format_time(total_time),
             "max_speed": max_speed,
-            "start_time": datetime.fromtimestamp(start_time).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-            if start_time
-            else "N/A",
-            "end_time": datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S")
-            if end_time
-            else "N/A",
+            "start_time": format_date(datetime.fromtimestamp(start_time, timezone.utc)) if start_time else "N/A",
+            "end_time": format_date(datetime.fromtimestamp(end_time, timezone.utc)) if end_time else "N/A",
         }
 
         logging.info(f"Returning trip metrics: {formatted_metrics}")

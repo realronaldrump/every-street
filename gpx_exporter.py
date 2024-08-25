@@ -1,6 +1,7 @@
 import logging
 from lxml import etree
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
+from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range
 
 class GPXExporter:
     def __init__(self, geojson_handler):
@@ -11,26 +12,27 @@ class GPXExporter:
             logging.info(f"Exporting GPX for date range: {start_date} to {end_date}")
             logging.info(f"Filter Waco: {filter_waco}, Waco Boundary: {waco_boundary}")
 
+            start_date = parse_date(start_date)
+            end_date = parse_date(end_date)
+
             waco_limits = None
             if filter_waco:
                 waco_limits = self.geojson_handler.load_waco_boundary(waco_boundary)
                 logging.info(f"Loaded Waco limits: {waco_limits is not None}")
 
             filtered_features = []
-            start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
-            end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
             
-            current_month = start_datetime.replace(day=1)
-            while current_month <= end_datetime:
-                month_year = current_month.strftime("%Y-%m")
+            for current_date in date_range(start_date, end_date):
+                month_year = current_date.strftime("%Y-%m")
                 if month_year in self.geojson_handler.monthly_data:
                     month_features = self.geojson_handler.filter_geojson_features(
-                        start_date, end_date, filter_waco, waco_limits, 
+                        format_date(get_start_of_day(current_date)),
+                        format_date(get_end_of_day(current_date)),
+                        filter_waco,
+                        waco_limits, 
                         self.geojson_handler.monthly_data[month_year]
                     )
                     filtered_features.extend(month_features)
-                current_month += timedelta(days=32)
-                current_month = current_month.replace(day=1)
 
             logging.info(f"Number of filtered features: {len(filtered_features)}")
 
@@ -43,9 +45,9 @@ class GPXExporter:
             # Add metadata
             metadata = etree.SubElement(gpx, "metadata")
             name = etree.SubElement(metadata, "name")
-            name.text = f"GPX Export {start_date} to {end_date}"
+            name.text = f"GPX Export {format_date(start_date)} to {format_date(end_date)}"
             time = etree.SubElement(metadata, "time")
-            time.text = datetime.now(timezone.utc).isoformat()
+            time.text = format_date(datetime.now(timezone.utc))
 
             for i, feature in enumerate(filtered_features):
                 logging.info(f"Processing feature {i+1}/{len(filtered_features)}")
@@ -73,17 +75,9 @@ class GPXExporter:
                         time = etree.SubElement(trkpt, "time")
                         timestamp = timestamps[j]
                         if isinstance(timestamp, (int, float)):
-                            time.text = (
-                                datetime.utcfromtimestamp(timestamp)
-                                .replace(tzinfo=timezone.utc)
-                                .isoformat()
-                            )
+                            time.text = format_date(datetime.fromtimestamp(timestamp, timezone.utc))
                         elif isinstance(timestamp, tuple) and len(timestamp) >= 1:
-                            time.text = (
-                                datetime.utcfromtimestamp(timestamp[0])
-                                .replace(tzinfo=timezone.utc)
-                                .isoformat()
-                            )
+                            time.text = format_date(datetime.fromtimestamp(timestamp[0], timezone.utc))
                         else:
                             logging.warning(f"Invalid timestamp format for coordinate {j} in feature {i+1}: {timestamp}")
                     else:

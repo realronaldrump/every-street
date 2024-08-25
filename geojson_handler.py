@@ -11,6 +11,7 @@ from shapely.geometry import Polygon, LineString, MultiLineString, box, shape
 from rtree import index
 
 from bouncie_api import BouncieAPI
+from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
@@ -191,9 +192,8 @@ class GeoJSONHandler:
                     "Accept": "application/json",
                     "Authorization": self.bouncie_api.client.access_token,
                 }
-                current_date = latest_date
-                while current_date < today:
-                    date_str = current_date.strftime("%Y-%m-%d")
+                for current_date in date_range(latest_date, today):
+                    date_str = format_date(current_date)
                     trips_data = await self.bouncie_api.fetch_trip_data(
                         session, VEHICLE_ID, date_str, headers
                     )
@@ -202,7 +202,6 @@ class GeoJSONHandler:
                         logging.info(f"Fetched trips data for {date_str}")
                     else:
                         logging.info(f"No trips data found for {date_str}")
-                    current_date += timedelta(days=1)
 
             logging.info(f"Fetched {len(all_trips)} trips")
             new_features = self.create_geojson_features_from_trips(all_trips)
@@ -236,9 +235,8 @@ class GeoJSONHandler:
         logging.info(f"Updated monthly files with {len(new_features)} new features")
 
     def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, features=None, bounds=None):
-        start_datetime = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        end_datetime = datetime.strptime(end_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        end_datetime += timedelta(days=1) - timedelta(seconds=1)
+        start_datetime = get_start_of_day(parse_date(start_date))
+        end_datetime = get_end_of_day(parse_date(end_date))
 
         filtered_features = []
 

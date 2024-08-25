@@ -3,7 +3,7 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import functools
 from quart import Quart, render_template, jsonify, request, Response, redirect, url_for, session
 from quart_cors import cors
@@ -18,6 +18,7 @@ from geopy.geocoders import Nominatim
 import redis
 import gzip
 from typing import List
+from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range
 
 # Set up logging
 log_directory = "logs"
@@ -72,13 +73,29 @@ geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 bouncie_api = BouncieAPI()
 gpx_exporter = GPXExporter(geojson_handler)
 
-historical_data_loaded = False
-is_processing = False
-historical_data_loading = False
+# Create locks for shared resources
+historical_data_lock = asyncio.Lock()
+processing_lock = asyncio.Lock()
+live_route_lock = asyncio.Lock()
 
 LIVE_ROUTE_DATA_FILE = "live_route_data.geojson"
 
-background_tasks = set()
+class TaskManager:
+    def __init__(self):
+        self.tasks = set()
+
+    def add_task(self, coro):
+        task = asyncio.create_task(coro)
+        self.tasks.add(task)
+        task.add_done_callback(self.tasks.discard)
+
+    async def cancel_all(self):
+        tasks = list(self.tasks)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+app.task_manager = TaskManager()
 
 def load_live_route_data():
     try:
@@ -93,65 +110,59 @@ def load_live_route_data():
 
 def save_live_route_data(data):
     with open(LIVE_ROUTE_DATA_FILE, "w") as f:
-        json.dump(data, f, indent=4)  # Added indent for readability
-
-# No need for global live_route_data variable here
+        json.dump(data, f, indent=4)
 
 async def poll_bouncie_api():
     while True:
         try:
             bouncie_data = await bouncie_api.get_latest_bouncie_data()
             if bouncie_data:
-                # Load the data from the file 
-                app.live_route_data = load_live_route_data()
+                async with live_route_lock:
+                    app.live_route_data = load_live_route_data()
 
-                # Initialize app.live_route_data if it's empty
-                if "features" not in app.live_route_data:
-                    app.live_route_data["features"] = [{
-                        "type": "Feature",
-                        "geometry": {
-                            "type": "LineString",
-                            "coordinates": []
-                        },
-                        "properties": {}  # Add properties if needed
-                    }]
-                live_route_feature = app.live_route_data["features"][0]
+                    if "features" not in app.live_route_data:
+                        app.live_route_data["features"] = [{
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "LineString",
+                                "coordinates": []
+                            },
+                            "properties": {}
+                        }]
+                    live_route_feature = app.live_route_data["features"][0]
 
-                # Check if this is the first data point
-                if not live_route_feature["geometry"]["coordinates"]:
-                    live_route_feature["geometry"]["coordinates"].append(
-                        [bouncie_data["longitude"], bouncie_data["latitude"]]
-                    )
-                    save_live_route_data(app.live_route_data) # Save app.live_route_data
-                    app.latest_bouncie_data = bouncie_data
-                    await asyncio.sleep(1)
-                    continue
+                    if not live_route_feature["geometry"]["coordinates"]:
+                        live_route_feature["geometry"]["coordinates"].append(
+                            [bouncie_data["longitude"], bouncie_data["latitude"]]
+                        )
+                        save_live_route_data(app.live_route_data)
+                        app.latest_bouncie_data = bouncie_data
+                        await asyncio.sleep(1)
+                        continue
 
-                # Compare with the last recorded coordinates in the LineString
-                if (
-                    bouncie_data["longitude"] == live_route_feature["geometry"]["coordinates"][-1][0] and
-                    bouncie_data["latitude"] == live_route_feature["geometry"]["coordinates"][-1][1]
-                ):
-                    logging.info("Duplicate point detected, not adding to live route.")
-                else:
-                    # Append new coordinates to the existing LineString
-                    live_route_feature["geometry"]["coordinates"].append([bouncie_data["longitude"], bouncie_data["latitude"]])
-                    save_live_route_data(app.live_route_data)
-                    app.latest_bouncie_data = bouncie_data
+                    if (
+                        bouncie_data["longitude"] == live_route_feature["geometry"]["coordinates"][-1][0] and
+                        bouncie_data["latitude"] == live_route_feature["geometry"]["coordinates"][-1][1]
+                    ):
+                        logging.info("Duplicate point detected, not adding to live route.")
+                    else:
+                        live_route_feature["geometry"]["coordinates"].append([bouncie_data["longitude"], bouncie_data["latitude"]])
+                        save_live_route_data(app.live_route_data)
+                        app.latest_bouncie_data = bouncie_data
 
-            await asyncio.sleep(1)  # Adjust polling interval as needed
+            await asyncio.sleep(1)
 
         except Exception as e:
             logging.error(f"An error occurred while fetching live data: {e}")
-            await asyncio.sleep(5)  # Back off on errors
+            await asyncio.sleep(5)
 
 @app.route("/latest_bouncie_data")
 async def get_latest_bouncie_data():
-    return jsonify(getattr(app, 'latest_bouncie_data', {}))
+    async with live_route_lock:
+        return jsonify(getattr(app, 'latest_bouncie_data', {}))
 
 @app.before_serving
 async def startup():
-    # Initialize app.live_route_data with an empty LineString
     app.live_route_data = {
         "type": "FeatureCollection",
         "features": [
@@ -163,22 +174,24 @@ async def startup():
         ],
     }
 
-    task = asyncio.create_task(load_historical_data_background())
-    background_tasks.add(task)
-    task.add_done_callback(background_tasks.discard)
+    app.task_manager.add_task(load_historical_data_background())
+    app.task_manager.add_task(poll_bouncie_api())
     logging.info(f"Available routes: {app.url_map}")
 
 async def load_historical_data_background():
-    global historical_data_loaded, historical_data_loading
-    if not historical_data_loaded and not historical_data_loading:
-        historical_data_loading = True
-        await geojson_handler.load_historical_data()
-        historical_data_loaded = True
-        historical_data_loading = False
+    async with historical_data_lock:
+        if not app.historical_data_loaded and not app.historical_data_loading:
+            app.historical_data_loading = True
+            try:
+                await geojson_handler.load_historical_data()
+                app.historical_data_loaded = True
+            finally:
+                app.historical_data_loading = False
 
 @app.route("/live_route", methods=["GET"])
 async def live_route():
-    return jsonify(getattr(app, 'live_route_data', {}))  # Get data from app object
+    async with live_route_lock:
+        return jsonify(getattr(app, 'live_route_data', {}))
 
 @app.route("/login", methods=["GET", "POST"])
 async def login():
@@ -201,19 +214,21 @@ async def logout():
 @login_required
 async def index():
     today = datetime.now().strftime("%Y-%m-%d")
-    return await render_template("index.html", today=today, historical_data_loaded=historical_data_loaded)
+    async with historical_data_lock:
+        return await render_template("index.html", today=today, historical_data_loaded=app.historical_data_loaded)
 
 @app.route("/historical_data_status")
 async def historical_data_status():
-    return jsonify({
-        "loaded": historical_data_loaded,
-        "loading": historical_data_loading
-    })
+    async with historical_data_lock:
+        return jsonify({
+            "loaded": app.historical_data_loaded,
+            "loading": app.historical_data_loading
+        })
 
 @app.route("/historical_data")
 async def get_historical_data():
-    start_date = request.args.get("startDate", "2020-01-01")
-    end_date = request.args.get("endDate", datetime.now().strftime("%Y-%m-%d"))
+    start_date = parse_date(request.args.get("startDate", "2020-01-01"))
+    end_date = parse_date(request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d")))
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
     bounds_str = request.args.get("bounds", None)
@@ -225,8 +240,7 @@ async def get_historical_data():
         except ValueError:
             return jsonify({"error": "Invalid bounds format"}), 400
 
-    # Update cache key to remove pagination parameters
-    cache_key = f"historical_data:{start_date}:{end_date}:{filter_waco}:{waco_boundary}:{bounds}"
+    cache_key = f"historical_data:{format_date(start_date)}:{format_date(end_date)}:{filter_waco}:{waco_boundary}:{bounds}"
     cached_data = redis_client.get(cache_key) if redis_client else None
 
     if cached_data:
@@ -238,24 +252,23 @@ async def get_historical_data():
             waco_limits = geojson_handler.load_waco_boundary(waco_boundary)
 
         filtered_features = []
-        start_datetime = datetime.strptime(start_date, "%Y-%m-%d")
-        end_datetime = datetime.strptime(end_date, "%Y-%m-%d")
         
-        current_month = start_datetime.replace(day=1)
-        while current_month <= end_datetime:
-            month_year = current_month.strftime("%Y-%m")
-            if month_year in geojson_handler.monthly_data:
-                month_features = geojson_handler.filter_geojson_features(
-                    start_date, end_date, filter_waco, waco_limits, 
-                    geojson_handler.monthly_data[month_year], bounds
-                )
-                filtered_features.extend(month_features)
-            current_month += timedelta(days=32)
-            current_month = current_month.replace(day=1)
+        async with historical_data_lock:
+            for current_date in date_range(start_date, end_date):
+                month_year = current_date.strftime("%Y-%m")
+                if month_year in geojson_handler.monthly_data:
+                    month_features = geojson_handler.filter_geojson_features(
+                        format_date(get_start_of_day(current_date)),
+                        format_date(get_end_of_day(current_date)),
+                        filter_waco,
+                        waco_limits, 
+                        geojson_handler.monthly_data[month_year],
+                        bounds
+                    )
+                    filtered_features.extend(month_features)
 
         result = {"type": "FeatureCollection", "features": filtered_features, "total_features": len(filtered_features)}
         
-        # Compress and cache the result
         compressed_data = gzip.compress(json.dumps(result).encode('utf-8'))
         if redis_client:
             redis_client.setex(cache_key, 3600, compressed_data)  # Cache for 1 hour
@@ -279,9 +292,9 @@ async def get_live_data():
                 },
                 "properties": {"timestamp": bouncie_data["timestamp"]},
             }
-            # Use app.live_route_data here:
-            app.live_route_data["features"].append(new_point)  
-            save_live_route_data(app.live_route_data) 
+            async with live_route_lock:
+                app.live_route_data["features"].append(new_point)  
+                save_live_route_data(app.live_route_data) 
 
             return jsonify(bouncie_data)
         return jsonify({"error": "No live data available"})
@@ -296,14 +309,14 @@ async def get_trip_metrics():
 
 @app.route("/export_gpx")
 async def export_gpx():
-    start_date = request.args.get("startDate", "2020-01-01")
-    end_date = request.args.get("endDate", datetime.now().strftime("%Y-%m-%d"))
+    start_date = parse_date(request.args.get("startDate", "2020-01-01"))
+    end_date = parse_date(request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d")))
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
 
     try:
         gpx_data = await gpx_exporter.export_to_gpx(
-            start_date, end_date, filter_waco, waco_boundary
+            format_date(start_date), format_date(end_date), filter_waco, waco_boundary
         )
         
         if gpx_data is None:
@@ -358,33 +371,35 @@ async def search_suggestions():
 
 @app.route("/update_historical_data", methods=["POST"])
 async def update_historical_data():
-    global is_processing
-    if is_processing:
-        return jsonify({"error": "Another process is already running"}), 429
+    async with processing_lock:
+        if app.is_processing:
+            return jsonify({"error": "Another process is already running"}), 429
 
-    try:
-        is_processing = True
-        logging.info("Starting historical data update process")
-        await geojson_handler.update_historical_data()
-        logging.info("Historical data update process completed")
-        return jsonify({"message": "Historical data updated successfully!"}), 200
-    except Exception as e:
-        logging.error(f"An error occurred during the update process: {e}")
-        return jsonify({"error": f"An error occurred: {str(e)}"}), 500
-    finally:
-        is_processing = False
+        try:
+            app.is_processing = True
+            logging.info("Starting historical data update process")
+            await geojson_handler.update_historical_data()
+            logging.info("Historical data update process completed")
+            return jsonify({"message": "Historical data updated successfully!"}), 200
+        except Exception as e:
+            logging.error(f"An error occurred during the update process: {e}")
+            return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+        finally:
+            app.is_processing = False
 
 @app.route('/processing_status')
 async def processing_status():
-    return jsonify({'isProcessing': is_processing})
+    async with processing_lock:
+        return jsonify({'isProcessing': app.is_processing})
+
+@app.after_serving
+async def shutdown():
+    await app.task_manager.cancel_all()
 
 if __name__ == "__main__":
     # Create a new event loop and set it as the current event loop
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
-    # Start the background task
-    asyncio.ensure_future(poll_bouncie_api())
     
     hyper_config = HyperConfig()
     hyper_config.bind = ["0.0.0.0:8080"]
