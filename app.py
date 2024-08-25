@@ -19,6 +19,7 @@ import redis
 import gzip
 from typing import List
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range
+from shapely.geometry import shape, box
 
 # Set up logging
 log_directory = "logs"
@@ -52,7 +53,12 @@ def login_required(func):
 app = Quart(__name__)
 app = cors(app)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
-app.config["PIN"] = os.getenv("PIN", "1234")
+app.config["PIN"] = os.getenv("PIN")
+
+# Initialize app attributes
+app.historical_data_loaded = False
+app.historical_data_loading = False
+app.is_processing = False
 
 # Redis configuration
 redis_url = os.getenv('REDIS_URL')
@@ -103,7 +109,9 @@ def load_live_route_data():
             return json.load(f)
     except FileNotFoundError:
         logging.warning(f"File not found: {LIVE_ROUTE_DATA_FILE}. Creating an empty GeoJSON.")
-        return {"type": "FeatureCollection", "features": []}
+        empty_geojson = {"type": "FeatureCollection", "features": []}
+        save_live_route_data(empty_geojson)
+        return empty_geojson
     except json.JSONDecodeError:
         logging.error(f"Error decoding JSON from {LIVE_ROUTE_DATA_FILE}. File may be corrupted.")
         return {"type": "FeatureCollection", "features": []}
@@ -131,24 +139,14 @@ async def poll_bouncie_api():
                         }]
                     live_route_feature = app.live_route_data["features"][0]
 
-                    if not live_route_feature["geometry"]["coordinates"]:
-                        live_route_feature["geometry"]["coordinates"].append(
-                            [bouncie_data["longitude"], bouncie_data["latitude"]]
-                        )
-                        save_live_route_data(app.live_route_data)
-                        app.latest_bouncie_data = bouncie_data
-                        await asyncio.sleep(1)
-                        continue
+                    new_coord = [bouncie_data["longitude"], bouncie_data["latitude"]]
 
-                    if (
-                        bouncie_data["longitude"] == live_route_feature["geometry"]["coordinates"][-1][0] and
-                        bouncie_data["latitude"] == live_route_feature["geometry"]["coordinates"][-1][1]
-                    ):
-                        logging.info("Duplicate point detected, not adding to live route.")
-                    else:
-                        live_route_feature["geometry"]["coordinates"].append([bouncie_data["longitude"], bouncie_data["latitude"]])
+                    if not live_route_feature["geometry"]["coordinates"] or new_coord != live_route_feature["geometry"]["coordinates"][-1]:
+                        live_route_feature["geometry"]["coordinates"].append(new_coord)
                         save_live_route_data(app.live_route_data)
                         app.latest_bouncie_data = bouncie_data
+                    else:
+                        logging.info("Duplicate point detected, not adding to live route.")
 
             await asyncio.sleep(1)
 
@@ -163,16 +161,7 @@ async def get_latest_bouncie_data():
 
 @app.before_serving
 async def startup():
-    app.live_route_data = {
-        "type": "FeatureCollection",
-        "features": [
-            {
-                "type": "Feature",
-                "geometry": {"type": "LineString", "coordinates": []},
-                "properties": {},
-            }
-        ],
-    }
+    app.live_route_data = load_live_route_data()
 
     app.task_manager.add_task(load_historical_data_background())
     app.task_manager.add_task(poll_bouncie_api())
@@ -227,26 +216,26 @@ async def historical_data_status():
 
 @app.route("/historical_data")
 async def get_historical_data():
-    start_date = parse_date(request.args.get("startDate", "2020-01-01"))
-    end_date = parse_date(request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d")))
-    filter_waco = request.args.get("filterWaco", "false").lower() == "true"
-    waco_boundary = request.args.get("wacoBoundary", "city_limits")
-    bounds_str = request.args.get("bounds", None)
-
-    bounds = None
-    if bounds_str:
-        try:
-            bounds = [float(x) for x in bounds_str.split(",")]
-        except ValueError:
-            return jsonify({"error": "Invalid bounds format"}), 400
-
-    cache_key = f"historical_data:{format_date(start_date)}:{format_date(end_date)}:{filter_waco}:{waco_boundary}:{bounds}"
-    cached_data = redis_client.get(cache_key) if redis_client else None
-
-    if cached_data:
-        return Response(cached_data, mimetype='application/json')
-
     try:
+        start_date = parse_date(request.args.get("startDate", "2020-01-01"))
+        end_date = parse_date(request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+        filter_waco = request.args.get("filterWaco", "false").lower() == "true"
+        waco_boundary = request.args.get("wacoBoundary", "city_limits")
+        bounds_str = request.args.get("bounds", None)
+
+        bounds = None
+        if bounds_str:
+            try:
+                bounds = [float(x) for x in bounds_str.split(",")]
+            except ValueError:
+                return jsonify({"error": "Invalid bounds format"}), 400
+
+        cache_key = f"historical_data:{format_date(start_date)}:{format_date(end_date)}:{filter_waco}:{waco_boundary}:{bounds}"
+        cached_data = redis_client.get(cache_key) if redis_client else None
+
+        if cached_data:
+            return Response(cached_data, mimetype='application/json')
+
         waco_limits = None
         if filter_waco and waco_boundary != "none":
             waco_limits = geojson_handler.load_waco_boundary(waco_boundary)
@@ -275,8 +264,11 @@ async def get_historical_data():
 
         return Response(compressed_data, mimetype='application/json', headers={'Content-Encoding': 'gzip'})
 
+    except ValueError as e:
+        logging.error(f"Error parsing date: {str(e)}")
+        return jsonify({"error": f"Invalid date format: {str(e)}"}), 400
     except Exception as e:
-        logging.error(f"Error filtering historical data: {e}")
+        logging.error(f"Error filtering historical data: {str(e)}", exc_info=True)
         return jsonify({"error": "Error filtering historical data", "details": str(e)}), 500
 
 @app.route("/live_data")

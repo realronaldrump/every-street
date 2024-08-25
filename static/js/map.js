@@ -219,19 +219,15 @@ async function loadLiveRouteData() {
         const response = await fetch('/live_route');
         const data = await response.json();
 
-        // Remove the previous live route layer if it exists
+        // Remove previous layers
         if (liveRouteDataLayer) {
             map.removeLayer(liveRouteDataLayer);
             liveRouteDataLayer = null;
         }
-
-        // Remove the previous live marker if it exists
         if (liveMarker) {
             map.removeLayer(liveMarker);
             liveMarker = null;
         }
-
-        // Remove the previous live polyline if it exists
         if (liveRoutePolyline) {
             map.removeLayer(liveRoutePolyline);
             liveRoutePolyline = null;
@@ -248,10 +244,12 @@ async function loadLiveRouteData() {
         const coordinates = data.features[0].geometry.coordinates;
 
         // Create the new live route polyline
-        liveRoutePolyline = L.polyline(coordinates, { 
-            color: '#007bff',
-            weight: 4
-        }).addTo(map);
+        if (coordinates.length > 1) {
+            liveRoutePolyline = L.polyline(coordinates.map(coord => [coord[1], coord[0]]), {
+                color: '#007bff',
+                weight: 4
+            }).addTo(map);
+        }
 
         // Create the new live marker (at the last coordinate)
         if (coordinates.length > 0) {
@@ -368,7 +366,9 @@ async function displayHistoricalData() {
             }
 
             const compressedData = await response.arrayBuffer();
-            const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
+            const decompressedData = pako.inflate(new Uint8Array(compressedData), {
+                to: 'string'
+            });
             const data = JSON.parse(decompressedData);
 
             if (!data || !data.features || data.features.length === 0) {
@@ -463,12 +463,15 @@ function addRoutePopup(feature, layer) {
     const playbackButton = document.createElement('button');
     playbackButton.textContent = 'Play Route';
     playbackButton.addEventListener('click', () => {
-        if (feature.geometry.type === 'LineString') {
+        if (feature.geometry.type === 'LineString' && feature.geometry.coordinates.length > 1) {
             startPlayback(feature.geometry.coordinates);
         } else if (feature.geometry.type === 'MultiLineString') {
-            feature.geometry.coordinates.forEach(segment => {
-                startPlayback(segment);
-            });
+            const validSegments = feature.geometry.coordinates.filter(segment => segment.length > 1);
+            if (validSegments.length > 0) {
+                validSegments.forEach(segment => {
+                    startPlayback(segment);
+                });
+            }
         }
     });
 
@@ -710,8 +713,11 @@ async function exportToGPX() {
 // Initialize WebWorker
 function initializeWebWorker() {
     worker = new Worker('/static/js/worker.js');
-    worker.onmessage = function (e) {
-        const { action, data } = e.data;
+    worker.onmessage = function(e) {
+        const {
+            action,
+            data
+        } = e.data;
         if (action === 'filterFeaturesResult') {
             updateMapWithFilteredFeatures(data);
 
@@ -728,8 +734,15 @@ function updateMapWithFilteredFeatures(data, fitBounds = true) {
     }
 
     historicalDataLayer = L.geoJSON(data, {
-        style: { color: 'blue', weight: 2, opacity: 0.25 },
-        onEachFeature: addRoutePopup
+        style: {
+            color: 'blue',
+            weight: 2,
+            opacity: 0.25
+        },
+        onEachFeature: addRoutePopup,
+        filter: function(feature) {
+            return feature.geometry && feature.geometry.coordinates && feature.geometry.coordinates.length > 0;
+        }
     }).addTo(map);
 
     // Update total historical distance
@@ -741,7 +754,12 @@ function updateMapWithFilteredFeatures(data, fitBounds = true) {
 
     // Fit the map to the bounds of the historical data if requested
     if (fitBounds && data.features.length > 0) {
-        map.fitBounds(historicalDataLayer.getBounds());
+        const bounds = historicalDataLayer.getBounds();
+        if (bounds.isValid()) {
+            map.fitBounds(bounds);
+        } else {
+            console.warn('Invalid bounds for historical data');
+        }
     }
 }
 
@@ -887,12 +905,12 @@ function setupEventListeners() {
                 }
 
                 searchMarker = L.marker([latitude, longitude], {
-                    icon: L.divIcon({
-                        className: 'custom-marker',
-                        iconSize: [30, 30],
-                        html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
-                    })
-                }).addTo(map)
+                        icon: L.divIcon({
+                            className: 'custom-marker',
+                            iconSize: [30, 30],
+                            html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
+                        })
+                    }).addTo(map)
                     .bindPopup(`<b>${address}</b>`)
                     .openPopup();
 
@@ -994,7 +1012,7 @@ function debounce(func, wait) {
 }
 
 // DOMContentLoaded event listener
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function() {
     map = initializeMap(); // Initialize the map
     initializeDataPolling();
     initializeWebWorker();
@@ -1003,7 +1021,7 @@ document.addEventListener('DOMContentLoaded', function () {
     // Check with the server if any long-running process is active
     fetch('/processing_status')
         .then(response => response.json())
-        .       then(data => {
+        .then(data => {
             if (data.isProcessing) {
                 isProcessing = true;
                 disableUI();
@@ -1016,4 +1034,4 @@ document.addEventListener('DOMContentLoaded', function () {
             console.error('Error checking processing status:', error);
             showFeedback('Error checking application status. Please refresh the page.', 'error');
         });
-  });
+});

@@ -234,6 +234,7 @@ class GeoJSONHandler:
 
         logging.info(f"Updated monthly files with {len(new_features)} new features")
 
+
     def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, features=None, bounds=None):
         start_datetime = get_start_of_day(parse_date(start_date))
         end_datetime = get_end_of_day(parse_date(end_date))
@@ -251,29 +252,34 @@ class GeoJSONHandler:
         for i, feature in enumerate(features_to_filter):
             timestamp = feature["properties"].get("timestamp")
             if timestamp is not None:
-                route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-                logging.debug(f"Feature {i} timestamp: {route_datetime}")
-                if start_datetime <= route_datetime <= end_datetime:
-                    logging.debug(f"Feature {i} within date range")
-                    
-                    # Apply bounding box filter if provided
-                    if bounds:
-                        feature_geom = shape(feature['geometry'])
-                        if not feature_geom.intersects(bounding_box):
-                            continue
+                try:
+                    # Ensure timestamp is an integer
+                    timestamp = int(float(timestamp))
+                    route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
+                    logging.debug(f"Feature {i} timestamp: {route_datetime}")
+                    if start_datetime <= route_datetime <= end_datetime:
+                        logging.debug(f"Feature {i} within date range")
+                        
+                        # Apply bounding box filter if provided
+                        if bounds:
+                            feature_geom = shape(feature['geometry'])
+                            if not feature_geom.intersects(bounding_box):
+                                continue
 
-                    if filter_waco and waco_limits:
-                        clipped_route = self.clip_route_to_boundary(feature, waco_limits)
-                        if clipped_route:
-                            filtered_features.append(clipped_route)
-                            logging.debug(f"Feature {i} clipped and added")
+                        if filter_waco and waco_limits:
+                            clipped_route = self.clip_route_to_boundary(feature, waco_limits)
+                            if clipped_route:
+                                filtered_features.append(clipped_route)
+                                logging.debug(f"Feature {i} clipped and added")
+                            else:
+                                logging.debug(f"Feature {i} clipped but resulted in empty geometry")
                         else:
-                            logging.debug(f"Feature {i} clipped but resulted in empty geometry")
+                            filtered_features.append(feature)
+                            logging.debug(f"Feature {i} added (no Waco filter)")
                     else:
-                        filtered_features.append(feature)
-                        logging.debug(f"Feature {i} added (no Waco filter)")
-                else:
-                    logging.debug(f"Feature {i} outside date range: {route_datetime}")
+                        logging.debug(f"Feature {i} outside date range: {route_datetime}")
+                except ValueError:
+                    logging.warning(f"Invalid timestamp for feature {i}: {timestamp}")
             else:
                 logging.warning(f"Feature {i} has no timestamp")
 

@@ -40,15 +40,15 @@ class BouncieAPI:
                 return None
 
             stats = vehicle_data["stats"]
-            location = stats.get("location")
+            location = stats.get("location", {})
 
             if not location:
                 logging.error("No location data found in Bouncie stats")
                 return None
 
             location_address = (
-                await self.reverse_geocode(location["lat"], location["lon"])
-                if ENABLE_GEOCODING
+                await self.reverse_geocode(location.get("lat"), location.get("lon"))
+                if ENABLE_GEOCODING and location.get("lat") is not None and location.get("lon") is not None
                 else "N/A"
             )
 
@@ -60,7 +60,7 @@ class BouncieAPI:
                 logging.error(f"Error converting timestamp: {e}")
                 return None
 
-            bouncie_status = stats["battery"]["status"]
+            bouncie_status = stats.get("battery", {}).get("status", "unknown")
             battery_state = (
                 "full"
                 if bouncie_status == "normal"
@@ -70,14 +70,14 @@ class BouncieAPI:
             )
 
             logging.info(
-                f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}"
+                f"Latest Bouncie data retrieved: {location.get('lat')}, {location.get('lon')} at {timestamp_unix}"
             )
             return {
-                "latitude": location["lat"],
-                "longitude": location["lon"],
+                "latitude": location.get("lat"),
+                "longitude": location.get("lon"),
                 "timestamp": timestamp_unix,
                 "battery_state": battery_state,
-                "speed": stats["speed"],
+                "speed": stats.get("speed", 0),
                 "device_id": DEVICE_IMEI,
                 "address": location_address,
             }
