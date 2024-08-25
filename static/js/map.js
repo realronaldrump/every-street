@@ -10,9 +10,26 @@ let historicalDataLoaded = false;
 let historicalDataLoading = false;
 let isProcessing = false;
 const processingQueue = [];
+let historicalDataCache = {}; // Cache for historical data
 
 // DOM elements
-let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBtn, stopBtn, playbackSpeedInput, speedValueSpan, wacoBoundarySelect, clearRouteBtn, applyFilterBtn, searchInput, searchBtn, exportToGPXBtn, clearDrawnShapesBtn;
+const filterWacoCheckbox = document.getElementById('filterWaco');
+const startDateInput = document.getElementById('startDate');
+const endDateInput = document.getElementById('endDate');
+const updateDataBtn = document.getElementById('updateDataBtn');
+const playPauseBtn = document.getElementById('playPauseBtn');
+const stopBtn = document.getElementById('stopBtn');
+const playbackSpeedInput = document.getElementById('playbackSpeed');
+const speedValueSpan = document.getElementById('speedValue');
+const wacoBoundarySelect = document.getElementById('wacoBoundarySelect');
+const clearRouteBtn = document.getElementById('clearRouteBtn');
+const applyFilterBtn = document.getElementById('applyFilterBtn');
+const searchInput = document.getElementById('searchInput');
+const searchBtn = document.getElementById('searchBtn');
+const exportToGPXBtn = document.getElementById('exportToGPXBtn');
+const clearDrawnShapesBtn = document.getElementById('clearDrawnShapesBtn');
+
+let searchMarker; // For search functionality
 
 // Enhanced feedback function
 function showFeedback(message, type = 'info', duration = 5000) {
@@ -131,7 +148,7 @@ function initializeMap() {
   map.on(L.Draw.Event.DELETED, () => {
     displayHistoricalData(); // Revert to default filtering
   });
-} // <-- Moved the closing brace here
+}
 
 // Function to load Waco city limits
 async function loadWacoLimits(boundaryType) {
@@ -277,6 +294,7 @@ function updateLiveData(data) {
   }
 }
 
+
 // Function to display historical data
 async function displayHistoricalData() {
   if (!historicalDataLoaded) {
@@ -288,18 +306,30 @@ async function displayHistoricalData() {
     showFeedback('Loading historical data...', 'info');
     const wacoBoundary = wacoBoundarySelect.value;
     const bounds = map.getBounds();
-    const response = await fetch(`/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}&bounds=${JSON.stringify(bounds.toBBoxString().split(','))}`);
-    const compressedData = await response.arrayBuffer();
-    const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
-    const data = JSON.parse(decompressedData);
+    const cacheKey = `${startDateInput.value}-${endDateInput.value}-${filterWacoCheckbox.checked}-${wacoBoundary}-${bounds.toBBoxString()}`;
 
-    worker.postMessage({
-      action: 'filterFeatures',
-      data: {
-        features: data.features,
-        bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
-      }
-    });
+    if (historicalDataCache[cacheKey]) {
+      // Use cached data
+      console.log('Using cached historical data');
+      updateMapWithFilteredFeatures(historicalDataCache[cacheKey]);
+    } else {
+      // Fetch and cache data
+      console.log('Fetching new historical data');
+      const response = await fetch(`/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}&bounds=${JSON.stringify(bounds.toBBoxString().split(','))}`);
+      const compressedData = await response.arrayBuffer();
+      const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
+      const data = JSON.parse(decompressedData);
+
+      historicalDataCache[cacheKey] = data; // Cache the data
+
+      worker.postMessage({
+        action: 'filterFeatures',
+        data: {
+          features: data.features,
+          bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+        }
+      });
+    }
   } catch (error) {
     console.error('Error displaying historical data:', error);
     showFeedback('Error loading monthly historical data. Please try again.', 'error');
@@ -727,21 +757,19 @@ function setupEventListeners() {
     }
   }, 'Searching for location...'));
 
-  searchInput.addEventListener('input', handleBackgroundTask(async () => {
+  searchInput.addEventListener('input', async () => { // Removed handleBackgroundTask
     const query = searchInput.value;
     const suggestionsContainer = document.getElementById('searchSuggestions');
-
-    // Clear the suggestions container when input changes
     suggestionsContainer.innerHTML = '';
-
+  
     if (query.length < 3) {
       return;
     }
-
+  
     try {
       const response = await fetch(`/search_suggestions?query=${query}`);
       const suggestions = await response.json();
-
+  
       if (suggestions.length > 0) {
         suggestions.forEach(suggestion => {
           const suggestionElement = document.createElement('div');
@@ -756,36 +784,41 @@ function setupEventListeners() {
     } catch (error) {
       console.error('Error fetching search suggestions:', error);
     }
-  }, 'Fetching search suggestions...'));
+  });
+
 
   // Event listener for Export to GPX button
   exportToGPXBtn.addEventListener('click', handleBackgroundTask(exportToGPX, 'Exporting to GPX...'));
 
   // Event listener for Clear Drawn Shapes button
   clearDrawnShapesBtn.addEventListener('click', handleBackgroundTask(clearDrawnShapes, 'Clearing drawn shapes...'));
+
+  // Event listeners for filter inputs (using 'change' event)
+  filterWacoCheckbox.addEventListener('change', handleBackgroundTask(async () => {
+    await loadWacoLimits(wacoBoundarySelect.value);
+    await displayHistoricalData();
+    showFeedback('Filters applied successfully', 'success');
+  }, 'Applying filters...'));
+
+  startDateInput.addEventListener('change', handleBackgroundTask(async () => {
+    await displayHistoricalData();
+    showFeedback('Filters applied successfully', 'success');
+  }, 'Applying filters...'));
+
+  endDateInput.addEventListener('change', handleBackgroundTask(async () => {
+    await displayHistoricalData();
+    showFeedback('Filters applied successfully', 'success');
+  }, 'Applying filters...'));
+
+  wacoBoundarySelect.addEventListener('change', handleBackgroundTask(async () => {
+    await loadWacoLimits(wacoBoundarySelect.value);
+    await displayHistoricalData();
+    showFeedback('Filters applied successfully', 'success');
+  }, 'Applying filters...'));
 }
 
 // DOMContentLoaded event listener
 document.addEventListener('DOMContentLoaded', function () {
-  // Initialize DOM elements
-  filterWacoCheckbox = document.getElementById('filterWaco');
-  startDateInput = document.getElementById('startDate');
-  endDateInput = document.getElementById('endDate');
-  updateDataBtn = document.getElementById('updateDataBtn');
-  playPauseBtn = document.getElementById('playPauseBtn');
-  stopBtn = document.getElementById('stopBtn');
-  playbackSpeedInput = document.getElementById('playbackSpeed');
-  speedValueSpan = document.getElementById('speedValue');
-  wacoBoundarySelect = document.getElementById('wacoBoundarySelect');
-  clearRouteBtn = document.getElementById('clearRouteBtn');
-  applyFilterBtn = document.getElementById('applyFilterBtn');
-  searchInput = document.getElementById('searchInput');
-  searchBtn = document.getElementById('searchBtn');
-  exportToGPXBtn = document.getElementById('exportToGPXBtn');
-  clearDrawnShapesBtn = document.getElementById('clearDrawnShapesBtn');
-
-  let searchMarker;
-
   initializeMap();
   initializeDataPolling();
   initializeWebWorker();
