@@ -11,6 +11,8 @@ let historicalDataLoading = false;
 let isProcessing = false;
 const processingQueue = [];
 let historicalDataCache = {}; // Cache for historical data
+let historicalDataLoadAttempts = 0;
+const MAX_LOAD_ATTEMPTS = 3;
 
 // DOM elements
 const filterWacoCheckbox = document.getElementById('filterWaco');
@@ -298,44 +300,49 @@ function updateLiveData(data) {
 // Function to display historical data
 async function displayHistoricalData() {
   if (!historicalDataLoaded) {
-    showFeedback('Historical data is still loading. Please wait.', 'info');
-    return;
+      showFeedback('Historical data is not loaded yet. Please wait or refresh the page.', 'warning');
+      return;
   }
 
   try {
-    showFeedback('Loading historical data...', 'info');
-    const wacoBoundary = wacoBoundarySelect.value;
-    const cacheKey = `${startDateInput.value}-${endDateInput.value}-${filterWacoCheckbox.checked}-${wacoBoundary}`; // Removed bounds from cache key
+      showFeedback('Loading historical data...', 'info');
+      const wacoBoundary = wacoBoundarySelect.value;
+      const cacheKey = `${startDateInput.value}-${endDateInput.value}-${filterWacoCheckbox.checked}-${wacoBoundary}`;
 
-    if (historicalDataCache[cacheKey]) {
-      // Use cached data
-      console.log('Using cached historical data');
-      updateMapWithFilteredFeatures(historicalDataCache[cacheKey]);
-    } else {
-      // Fetch and cache data
-      console.log('Fetching new historical data');
+      if (historicalDataCache[cacheKey]) {
+          console.log('Using cached historical data');
+          updateMapWithFilteredFeatures(historicalDataCache[cacheKey]);
+      } else {
+          console.log('Fetching new historical data');
 
-      // Removed bounds parameter from the request
-      const response = await fetch(`/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}`);
+          const response = await fetch(`/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}`);
+          
+          if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+          }
 
-      const compressedData = await response.arrayBuffer();
-      const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
-      const data = JSON.parse(decompressedData);
+          const compressedData = await response.arrayBuffer();
+          const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
+          const data = JSON.parse(decompressedData);
 
-      historicalDataCache[cacheKey] = data; // Cache the data
+          if (!data || !data.features || data.features.length === 0) {
+              showFeedback('No historical data available for the selected period.', 'warning');
+              return;
+          }
 
-      // Send all features to the worker for initial filtering
-      worker.postMessage({
-        action: 'filterFeatures',
-        data: {
-          features: data.features,
-          bounds: [] // Empty bounds to include all features
-        }
-      });
-    }
+          historicalDataCache[cacheKey] = data;
+
+          worker.postMessage({
+              action: 'filterFeatures',
+              data: {
+                  features: data.features,
+                  bounds: []
+              }
+          });
+      }
   } catch (error) {
-    console.error('Error displaying historical data:', error);
-    showFeedback('Error loading historical data. Please try again.', 'error');
+      console.error('Error displaying historical data:', error);
+      showFeedback(`Error loading historical data: ${error.message}. Please try again.`, 'error');
   }
 }
 
@@ -545,7 +552,7 @@ function filterRoutesBy(period) {
     lastWeek: -7,
     lastMonth: -30,
     lastYear: -365,
-    allTime: new Date(2020, 0, 1) // Assuming your data starts from 2020
+    allTime: new Date(2020, 0, 1) // Data starts from 2020
   };
 
   startDate = periodMap[period] instanceof Date
@@ -619,51 +626,66 @@ function updateMapWithFilteredFeatures(features) {
 // Function to check historical data status
 async function checkHistoricalDataStatus() {
   try {
-    const response = await fetch('/historical_data_status');
-    const data = await response.json();
-    historicalDataLoaded = data.loaded;
-    historicalDataLoading = data.loading;
+      const response = await fetch('/historical_data_status');
+      if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      historicalDataLoaded = data.loaded;
+      historicalDataLoading = data.loading;
 
-    if (historicalDataLoading) {
-      showFeedback('Historical data is loading. Some features may be limited.', 'info');
-    } else if (historicalDataLoaded) {
-      showFeedback('Historical data loaded successfully.', 'success');
-      await displayHistoricalData();
-    }
+      if (historicalDataLoading) {
+          showFeedback('Historical data is loading. Some features may be limited.', 'info');
+      } else if (historicalDataLoaded) {
+          showFeedback('Historical data loaded successfully.', 'success');
+          await displayHistoricalData();
+      } else {
+          throw new Error('Historical data not loaded');
+      }
   } catch (error) {
-    console.error('Error checking historical data status:', error);
-    showFeedback('Error checking historical data status', 'error');
+      console.error('Error checking historical data status:', error);
+      showFeedback(`Error checking historical data status: ${error.message}`, 'error');
+      
+      if (historicalDataLoadAttempts < MAX_LOAD_ATTEMPTS) {
+          historicalDataLoadAttempts++;
+          showFeedback(`Retrying to load historical data (Attempt ${historicalDataLoadAttempts}/${MAX_LOAD_ATTEMPTS})`, 'info');
+          setTimeout(checkHistoricalDataStatus, 5000); // Retry after 5 seconds
+      } else {
+          showFeedback('Failed to load historical data after multiple attempts. Please refresh the page or try again later.', 'error');
+      }
   }
 }
 
-// Initialize the application
+// Update the initializeApp function
 async function initializeApp() {
   try {
-    endDateInput.value = new Date().toISOString().slice(0, 10);
+      endDateInput.value = new Date().toISOString().slice(0, 10);
 
-    showFeedback('Initializing application...', 'info');
+      showFeedback('Initializing application...', 'info');
 
-    await loadWacoLimits(selectedWacoBoundary);
-    await checkHistoricalDataStatus();
+      await loadWacoLimits(selectedWacoBoundary);
+      await checkHistoricalDataStatus();
 
-    if (!historicalDataLoaded) {
-      const checkInterval = setInterval(async () => {
-        await checkHistoricalDataStatus();
-        if (historicalDataLoaded) {
-          clearInterval(checkInterval);
-          showFeedback('Historical data loaded successfully', 'success');
-          await displayHistoricalData();
-        }
-      }, 5000); // Check every 5 seconds
-    }
+      if (!historicalDataLoaded) {
+          const checkInterval = setInterval(async () => {
+              await checkHistoricalDataStatus();
+              if (historicalDataLoaded || historicalDataLoadAttempts >= MAX_LOAD_ATTEMPTS) {
+                  clearInterval(checkInterval);
+                  if (historicalDataLoaded) {
+                      showFeedback('Historical data loaded successfully', 'success');
+                      await displayHistoricalData();
+                  }
+              }
+          }, 5000); // Check every 5 seconds
+      }
 
-    await loadLiveRouteData(); // Load the live route data on startup
-    setInterval(updateLiveDataAndMetrics, 3000);
+      await loadLiveRouteData(); // Load the live route data on startup
+      setInterval(updateLiveDataAndMetrics, 3000);
 
-    showFeedback('Application initialized successfully', 'success');
+      showFeedback('Application initialized successfully', 'success');
   } catch (error) {
-    console.error('Error initializing application:', error);
-    showFeedback('Error initializing application. Please refresh the page.', 'error');
+      console.error('Error initializing application:', error);
+      showFeedback(`Error initializing application: ${error.message}. Please refresh the page.`, 'error');
   }
 }
 
