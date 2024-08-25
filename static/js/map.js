@@ -237,7 +237,14 @@ async function loadLiveRouteData() {
             liveRoutePolyline = null;
         }
 
-        // Extract the LineString coordinates
+        // Error checking: Ensure data has the expected structure
+        if (!data.features || !data.features[0] || !data.features[0].geometry || !data.features[0].geometry.coordinates) {
+            console.error('Invalid live route data:', data);
+            showFeedback('Error: Invalid live route data received from the server.', 'error');
+            return; // Exit the function if the data is invalid
+        }
+
+        // Extract the LineString coordinates 
         const coordinates = data.features[0].geometry.coordinates;
 
         // Create the new live route polyline
@@ -321,8 +328,7 @@ function updateLiveData(data) {
                 "timestamp": data.timestamp
             }
         });
-    } else {
-        loadLiveRouteData(); // Load the layer if it doesn't exist
+
     }
 }
 

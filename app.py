@@ -93,33 +93,36 @@ def load_live_route_data():
 
 def save_live_route_data(data):
     with open(LIVE_ROUTE_DATA_FILE, "w") as f:
-        json.dump(data, f)
+        json.dump(data, f, indent=4)  # Added indent for readability
 
-live_route_data = load_live_route_data()
-last_feature = live_route_data["features"][-1] if live_route_data["features"] else None
+# No need for global live_route_data variable here
 
 async def poll_bouncie_api():
-    global last_feature, live_route_data
     while True:
         try:
             bouncie_data = await bouncie_api.get_latest_bouncie_data()
             if bouncie_data:
-                # Initialize live_route_data with a LineString feature if it's empty
-                if "features" not in live_route_data:
-                    live_route_data["features"] = [{
+                # Load the data from the file 
+                app.live_route_data = load_live_route_data()
+
+                # Initialize app.live_route_data if it's empty
+                if "features" not in app.live_route_data:
+                    app.live_route_data["features"] = [{
                         "type": "Feature",
                         "geometry": {
                             "type": "LineString",
                             "coordinates": []
                         },
-                        "properties": {} # Add properties if needed
+                        "properties": {}  # Add properties if needed
                     }]
-                live_route_feature = live_route_data["features"][0] 
+                live_route_feature = app.live_route_data["features"][0]
 
                 # Check if this is the first data point
                 if not live_route_feature["geometry"]["coordinates"]:
-                    live_route_feature["geometry"]["coordinates"].append([bouncie_data["longitude"], bouncie_data["latitude"]])
-                    save_live_route_data(live_route_data)
+                    live_route_feature["geometry"]["coordinates"].append(
+                        [bouncie_data["longitude"], bouncie_data["latitude"]]
+                    )
+                    save_live_route_data(app.live_route_data) # Save app.live_route_data
                     app.latest_bouncie_data = bouncie_data
                     await asyncio.sleep(1)
                     continue
@@ -131,9 +134,9 @@ async def poll_bouncie_api():
                 ):
                     logging.info("Duplicate point detected, not adding to live route.")
                 else:
-                    # Append new coordinates to the LineString if coordinates have changed
+                    # Append new coordinates to the existing LineString
                     live_route_feature["geometry"]["coordinates"].append([bouncie_data["longitude"], bouncie_data["latitude"]])
-                    save_live_route_data(live_route_data)
+                    save_live_route_data(app.live_route_data)
                     app.latest_bouncie_data = bouncie_data
 
             await asyncio.sleep(1)  # Adjust polling interval as needed
@@ -148,10 +151,21 @@ async def get_latest_bouncie_data():
 
 @app.before_serving
 async def startup():
+    # Initialize app.live_route_data with an empty LineString
+    app.live_route_data = {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": []},
+                "properties": {},
+            }
+        ],
+    }
+
     task = asyncio.create_task(load_historical_data_background())
     background_tasks.add(task)
     task.add_done_callback(background_tasks.discard)
-    # Debugging line to print available routes
     logging.info(f"Available routes: {app.url_map}")
 
 async def load_historical_data_background():
@@ -164,7 +178,7 @@ async def load_historical_data_background():
 
 @app.route("/live_route", methods=["GET"])
 async def live_route():
-    return jsonify(live_route_data)
+    return jsonify(getattr(app, 'live_route_data', {}))  # Get data from app object
 
 @app.route("/login", methods=["GET", "POST"])
 async def login():
@@ -265,8 +279,9 @@ async def get_live_data():
                 },
                 "properties": {"timestamp": bouncie_data["timestamp"]},
             }
-            live_route_data["features"].append(new_point)
-            save_live_route_data(live_route_data)
+            # Use app.live_route_data here:
+            app.live_route_data["features"].append(new_point)  
+            save_live_route_data(app.live_route_data) 
 
             return jsonify(bouncie_data)
         return jsonify({"error": "No live data available"})
