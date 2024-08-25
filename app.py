@@ -99,45 +99,48 @@ live_route_data = load_live_route_data()
 last_feature = live_route_data["features"][-1] if live_route_data["features"] else None
 
 async def poll_bouncie_api():
-    global last_feature
+    global last_feature, live_route_data
     while True:
         try:
             bouncie_data = await bouncie_api.get_latest_bouncie_data()
             if bouncie_data:
-                if last_feature:
-                    last_coordinates = last_feature["geometry"]["coordinates"]
-                    last_timestamp = last_feature["properties"]["timestamp"]
+                # Initialize live_route_data with a LineString feature if it's empty
+                if "features" not in live_route_data:
+                    live_route_data["features"] = [{
+                        "type": "Feature",
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": []
+                        },
+                        "properties": {} # Add properties if needed
+                    }]
+                live_route_feature = live_route_data["features"][0] 
 
-                    if (
-                        (bouncie_data["longitude"], bouncie_data["latitude"]) == tuple(last_coordinates) and 
-                        bouncie_data["timestamp"] == last_timestamp
-                    ):
-                        logging.info("Duplicate point detected, not adding to live route.")
-                        await asyncio.sleep(1)
-                        continue
+                # Check if this is the first data point
+                if not live_route_feature["geometry"]["coordinates"]:
+                    live_route_feature["geometry"]["coordinates"].append([bouncie_data["longitude"], bouncie_data["latitude"]])
+                    save_live_route_data(live_route_data)
+                    app.latest_bouncie_data = bouncie_data
+                    await asyncio.sleep(1)
+                    continue
 
-                new_point = {
-                    "type": "Feature",
-                    "geometry": {
-                        "type": "Point",
-                        "coordinates": [bouncie_data["longitude"], bouncie_data["latitude"]],
-                    },
-                    "properties": {"timestamp": bouncie_data["timestamp"]},
-                }
-                
-                last_feature = new_point
-                
-                logging.info("Appending new point to live route data.")
-                live_route_data["features"].append(new_point)
-                logging.info("Saving updated live route data to file.")
-                save_live_route_data(live_route_data)
-                
-                # Instead of broadcasting, we'll update a global variable
-                app.latest_bouncie_data = bouncie_data
-            await asyncio.sleep(1)
+                # Compare with the last recorded coordinates in the LineString
+                if (
+                    bouncie_data["longitude"] == live_route_feature["geometry"]["coordinates"][-1][0] and
+                    bouncie_data["latitude"] == live_route_feature["geometry"]["coordinates"][-1][1]
+                ):
+                    logging.info("Duplicate point detected, not adding to live route.")
+                else:
+                    # Append new coordinates to the LineString if coordinates have changed
+                    live_route_feature["geometry"]["coordinates"].append([bouncie_data["longitude"], bouncie_data["latitude"]])
+                    save_live_route_data(live_route_data)
+                    app.latest_bouncie_data = bouncie_data
+
+            await asyncio.sleep(1)  # Adjust polling interval as needed
+
         except Exception as e:
             logging.error(f"An error occurred while fetching live data: {e}")
-            await asyncio.sleep(5)
+            await asyncio.sleep(5)  # Back off on errors
 
 @app.route("/latest_bouncie_data")
 async def get_latest_bouncie_data():
@@ -199,13 +202,12 @@ async def get_historical_data():
     end_date = request.args.get("endDate", datetime.now().strftime("%Y-%m-%d"))
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
-    bounds_str = request.args.get("bounds", "null")
+    bounds_str = request.args.get("bounds", None)
 
-    if bounds_str == "null":
-        bounds = None
-    else:
+    bounds = None
+    if bounds_str:
         try:
-            bounds: List[float] = [float(x) for x in bounds_str.split(",")]
+            bounds = [float(x) for x in bounds_str.split(",")]
         except ValueError:
             return jsonify({"error": "Invalid bounds format"}), 400
 

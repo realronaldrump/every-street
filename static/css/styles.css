@@ -579,3 +579,7 @@ audio[controls] {
     outline: 3px solid HighlightText;
   }
 }
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

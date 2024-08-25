@@ -15,6 +15,7 @@ const CACHE_VERSION = 1; // Increment this when making changes to the cache stru
 const MAX_CACHE_SIZE = 10; // Maximum number of cached items
 let historicalDataLoadAttempts = 0;
 const MAX_LOAD_ATTEMPTS = 3;
+let isLoadingHistoricalData = false;
 
 // DOM elements
 const filterWacoCheckbox = document.getElementById('filterWaco');
@@ -111,55 +112,50 @@ function checkQueuedTasks() {
 
 // Function to initialize the map
 function initializeMap() {
-  map = L.map('map').setView([31.5493, -97.1117], 13); // Centered on Waco, TX
+    map = L.map('map').setView([31.5493, -97.1117], 13); // Centered on Waco, TX
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      maxZoom: 19
-  }).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19
+    }).addTo(map);
 
-  // Initialize drawing tools
-  drawnItems = new L.FeatureGroup();
-  map.addLayer(drawnItems);
+    // Initialize drawing tools
+    drawnItems = new L.FeatureGroup();
+    map.addLayer(drawnItems);
 
-  const drawControl = new L.Control.Draw({
-      draw: {
-          polyline: false,
-          polygon: true,
-          circle: false,
-          rectangle: false,
-          marker: false,
-          circlemarker: false
-      },
-      edit: {
-          featureGroup: drawnItems
-      }
-  });
-  map.addControl(drawControl);
+    const drawControl = new L.Control.Draw({
+        draw: {
+            polyline: false,
+            polygon: true,
+            circle: false,
+            rectangle: false,
+            marker: false,
+            circlemarker: false
+        },
+        edit: {
+            featureGroup: drawnItems
+        }
+    });
+    map.addControl(drawControl);
 
-  // Event listeners for drawing tools
-  map.on(L.Draw.Event.CREATED, (e) => {
-      const layer = e.layer;
-      drawnItems.addLayer(layer);
-      filterHistoricalDataByPolygon(layer);
-  });
+    // Event listeners for drawing tools
+    map.on(L.Draw.Event.CREATED, (e) => {
+        const layer = e.layer;
+        drawnItems.addLayer(layer);
+        filterHistoricalDataByPolygon(layer);
+    });
 
-  map.on(L.Draw.Event.EDITED, (e) => {
-      const layers = e.layers;
-      layers.eachLayer((layer) => {
-          filterHistoricalDataByPolygon(layer);
-      });
-  });
+    map.on(L.Draw.Event.EDITED, (e) => {
+        const layers = e.layers;
+        layers.eachLayer((layer) => {
+            filterHistoricalDataByPolygon(layer);
+        });
+    });
 
-  map.on(L.Draw.Event.DELETED, () => {
-      displayHistoricalData(); // Revert to default filtering
-  });
+    map.on(L.Draw.Event.DELETED, () => {
+        displayHistoricalData(); // Revert to default filtering
+    });
 
-  // Update the map event listener to refresh data when the map is moved
-  map.on('moveend', debounce(() => {
-      displayHistoricalData();
-  }, 300));
-
-  return map;
+    return map; // Return the map instance
 }
 
 // Function to load Waco city limits
@@ -195,6 +191,7 @@ async function loadWacoLimits(boundaryType) {
     }
 }
 
+
 // Function to clear the live route
 function clearLiveRoute() {
     if (liveRoutePolyline) {
@@ -222,33 +219,45 @@ async function loadLiveRouteData() {
         const response = await fetch('/live_route');
         const data = await response.json();
 
+        // Remove the previous live route layer if it exists
         if (liveRouteDataLayer) {
             map.removeLayer(liveRouteDataLayer);
+            liveRouteDataLayer = null;
         }
 
-        liveRouteDataLayer = L.geoJSON(data, {
-            style: {
-                color: '#007bff',
-                weight: 4
-            }, // Style the live route
-            pointToLayer: function(feature, latlng) { // Use a custom marker for the live point
-                if (liveMarker) {
-                    map.removeLayer(liveMarker);
-                }
-                liveMarker = L.marker(latlng, {
-                    icon: L.divIcon({
-                        className: 'blinking-marker',
-                        iconSize: [20, 20],
-                        html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
-                    })
-                });
-                return liveMarker;
-            }
+        // Remove the previous live marker if it exists
+        if (liveMarker) {
+            map.removeLayer(liveMarker);
+            liveMarker = null;
+        }
+
+        // Remove the previous live polyline if it exists
+        if (liveRoutePolyline) {
+            map.removeLayer(liveRoutePolyline);
+            liveRoutePolyline = null;
+        }
+
+        // Extract the LineString coordinates
+        const coordinates = data.features[0].geometry.coordinates;
+
+        // Create the new live route polyline
+        liveRoutePolyline = L.polyline(coordinates, { 
+            color: '#007bff',
+            weight: 4
         }).addTo(map);
 
-        // If there are points in the live route, set the view to the last point
-        if (data.features.length > 0) {
-            const lastCoord = data.features[data.features.length - 1].geometry.coordinates;
+        // Create the new live marker (at the last coordinate)
+        if (coordinates.length > 0) {
+            const lastCoord = coordinates[coordinates.length - 1];
+            liveMarker = L.marker([lastCoord[1], lastCoord[0]], {
+                icon: L.divIcon({
+                    className: 'blinking-marker',
+                    iconSize: [20, 20],
+                    html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
+                })
+            }).addTo(map);
+
+            // Set the map view to the last coordinate
             map.setView([lastCoord[1], lastCoord[0]], 13);
         }
 
@@ -319,75 +328,87 @@ function updateLiveData(data) {
 
 // Function to display historical data
 async function displayHistoricalData() {
-  if (!historicalDataLoaded) {
-      showFeedback('Historical data is not loaded yet. Please wait or refresh the page.', 'warning');
-      return;
-  }
+    if (!historicalDataLoaded) {
+        showFeedback('Historical data is not loaded yet. Please wait or refresh the page.', 'warning');
+        return;
+    }
 
-  if (isLoadingHistoricalData) {
-      showFeedback('Already loading historical data. Please wait.', 'info');
-      return;
-  }
+    if (isLoadingHistoricalData) {
+        showFeedback('Already loading historical data. Please wait.', 'info');
+        return;
+    }
 
-  try {
-      isLoadingHistoricalData = true;
-      disableFilterButtons();
-      showFeedback('Loading historical data...', 'info');
+    try {
+        isLoadingHistoricalData = true;
+        disableFilterButtons();
+        showFeedback('Loading historical data...', 'info');
 
-      const wacoBoundary = wacoBoundarySelect.value;
-      const bounds = map.getBounds();
-      const cacheKey = generateCacheKey(bounds);
+        const wacoBoundary = wacoBoundarySelect.value;
+        const cacheKey = generateCacheKey();
 
-      if (historicalDataCache[cacheKey]) {
-          console.log('Using cached historical data');
-          updateMapWithFilteredFeatures(historicalDataCache[cacheKey]);
-      } else {
-          console.log('Fetching new historical data');
+        if (historicalDataCache[cacheKey]) {
+            console.log('Using cached historical data');
+            updateMapWithFilteredFeatures(historicalDataCache[cacheKey]);
+        } else {
+            console.log('Fetching new historical data');
 
-          const response = await fetch(
-              `/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}` +
-              `&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}` +
-              `&bounds=${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
-          );
+            const response = await fetch(
+                `/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}` +
+                `&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}`
+            );
 
-          if (!response.ok) {
-              throw new Error(`HTTP error! status: ${response.status}`);
-          }
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
 
-          const compressedData = await response.arrayBuffer();
-          const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
-          const data = JSON.parse(decompressedData);
+            const compressedData = await response.arrayBuffer();
+            const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
+            const data = JSON.parse(decompressedData);
 
-          if (!data || !data.features || data.features.length === 0) {
-              showFeedback('No historical data available for the selected period and area.', 'warning');
-              return;
-          }
+            if (!data || !data.features || data.features.length === 0) {
+                showFeedback('No historical data available for the selected period.', 'warning');
+                return;
+            }
 
-          cacheHistoricalData(cacheKey, data);
+            cacheHistoricalData(cacheKey, data);
 
-          worker.postMessage({
-              action: 'filterFeatures',
-              data: {
-                  features: data.features,
-                  bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
-              }
-          });
-      }
-  } catch (error) {
-      console.error('Error displaying historical data:', error);
-      showFeedback(`Error loading historical data: ${error.message}. Please try again.`, 'error');
-  } finally {
-      isLoadingHistoricalData = false;
-      enableFilterButtons();
-  }
+            updateMapWithFilteredFeatures(data);
+        }
+    } catch (error) {
+        console.error('Error displaying historical data:', error);
+        showFeedback(`Error loading historical data: ${error.message}. Please try again.`, 'error');
+    } finally {
+        isLoadingHistoricalData = false;
+        enableFilterButtons();
+    }
+}
+
+function disableFilterButtons() {
+    document.querySelectorAll('#time-filters button').forEach(button => {
+        button.disabled = true;
+    });
+    applyFilterBtn.disabled = true;
+    filterWacoCheckbox.disabled = true;
+    startDateInput.disabled = true;
+    endDateInput.disabled = true;
+    wacoBoundarySelect.disabled = true;
+}
+
+function enableFilterButtons() {
+    document.querySelectorAll('#time-filters button').forEach(button => {
+        button.disabled = false;
+    });
+    applyFilterBtn.disabled = false;
+    filterWacoCheckbox.disabled = false;
+    startDateInput.disabled = false;
+    endDateInput.disabled = false;
+    wacoBoundarySelect.disabled = false;
 }
 
 // Function to generate a cache key based on current filters and map bounds
-function generateCacheKey(bounds) {
+function generateCacheKey() {
     return `${CACHE_VERSION}:${startDateInput.value}:${endDateInput.value}:` +
-        `${filterWacoCheckbox.checked}:${wacoBoundarySelect.value}:` +
-        `${bounds.getWest().toFixed(2)},${bounds.getSouth().toFixed(2)},` +
-        `${bounds.getEast().toFixed(2)},${bounds.getNorth().toFixed(2)}`;
+        `${filterWacoCheckbox.checked}:${wacoBoundarySelect.value}`;
 }
 
 // Function to cache historical data
@@ -547,15 +568,22 @@ function adjustPlaybackSpeed() {
 
 // Function to filter historical data by a drawn polygon
 function filterHistoricalDataByPolygon(polygon) {
-    if (!historicalDataLayer) return;
+    if (!historicalDataLayer || !historicalDataCache) return;
 
-    const filteredFeatures = historicalDataLayer.getLayers().filter(layer => {
-        const routeGeoJSON = layer.toGeoJSON();
-        if (routeGeoJSON.geometry.type === 'LineString') {
-            return turf.booleanCrosses(polygon.toGeoJSON(), routeGeoJSON) ||
-                turf.booleanWithin(routeGeoJSON, polygon.toGeoJSON());
-        } else if (routeGeoJSON.geometry.type === 'MultiLineString') {
-            return routeGeoJSON.geometry.coordinates.some(segment =>
+    const currentCacheKey = generateCacheKey();
+    const allData = historicalDataCache[currentCacheKey];
+
+    if (!allData || !allData.features) {
+        showFeedback('No historical data available to filter.', 'warning');
+        return;
+    }
+
+    const filteredFeatures = allData.features.filter(feature => {
+        if (feature.geometry.type === 'LineString') {
+            return turf.booleanCrosses(polygon.toGeoJSON(), feature) ||
+                turf.booleanWithin(feature, polygon.toGeoJSON());
+        } else if (feature.geometry.type === 'MultiLineString') {
+            return feature.geometry.coordinates.some(segment =>
                 turf.booleanCrosses(polygon.toGeoJSON(), turf.lineString(segment)) ||
                 turf.booleanWithin(turf.lineString(segment), polygon.toGeoJSON())
             );
@@ -563,28 +591,23 @@ function filterHistoricalDataByPolygon(polygon) {
         return false;
     });
 
-    // Create a new GeoJSON layer with the filtered features
     const filteredData = {
         type: 'FeatureCollection',
-        features: filteredFeatures.map(layer => layer.toGeoJSON())
+        features: filteredFeatures
     };
 
-    // Replace the existing historical data layer with the filtered one
-    map.removeLayer(historicalDataLayer);
-    historicalDataLayer = L.geoJSON(filteredData, {
-        style: {
-            color: 'blue',
-            weight: 2,
-            opacity: 0.25
-        },
-        onEachFeature: addRoutePopup
-    }).addTo(map);
+    updateMapWithFilteredFeatures(filteredData);
 }
 
-// Function to clear drawn shapes
 function clearDrawnShapes() {
     drawnItems.clearLayers();
-    displayHistoricalData(); // Re-display all historical data
+    const currentCacheKey = generateCacheKey();
+    const allData = historicalDataCache[currentCacheKey];
+    if (allData) {
+        updateMapWithFilteredFeatures(allData);
+    } else {
+        displayHistoricalData(); // Fallback to fetching data if it's not in the cache
+    }
 }
 
 function initializeDataPolling() {
@@ -603,30 +626,48 @@ function initializeDataPolling() {
 
 // Function to filter routes by a specific period
 function filterRoutesBy(period) {
-  if (isLoadingHistoricalData) {
-      showFeedback('Already loading historical data. Please wait.', 'info');
-      return;
-  }
+    if (isLoadingHistoricalData) {
+        showFeedback('Already loading historical data. Please wait.', 'info');
+        return;
+    }
 
-  const now = new Date();
-  let startDate;
+    const now = new Date();
+    let startDate, endDate;
 
-  const periodMap = {
-      today: 0,
-      yesterday: -1,
-      lastWeek: -7,
-      lastMonth: -30,
-      lastYear: -365,
-      allTime: new Date(2020, 0, 1) // Data starts from 2020
-  };
+    switch (period) {
+        case 'today':
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); // Tomorrow at 00:00
+            break;
+        case 'yesterday':
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // Today at 00:00
+            break;
+        case 'lastWeek':
+            startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); // Tomorrow at 00:00
+            break;
+        case 'lastMonth':
+            startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); // Tomorrow at 00:00
+            break;
+        case 'lastYear':
+            startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); // Tomorrow at 00:00
+            break;
+        case 'allTime':
+            startDate = new Date(2020, 0, 1); // Data starts from 2020
+            endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1); // Tomorrow at 00:00
+            break;
+        default:
+            // Handle invalid period (optional)
+            console.error('Invalid period:', period);
+            return;
+    }
 
-  startDate = periodMap[period] instanceof Date ?
-      periodMap[period] :
-      new Date(now.getFullYear(), now.getMonth(), now.getDate() + periodMap[period]);
-
-  startDateInput.value = startDate.toISOString().slice(0, 10);
-  endDateInput.value = now.toISOString().slice(0, 10);
-  displayHistoricalData(); // Update the map with the new date range
+    startDateInput.value = startDate.toISOString().slice(0, 10);
+    endDateInput.value = endDate.toISOString().slice(0, 10);
+    displayHistoricalData(); // Update the map with the new date range
 }
 
 // Function to export data to GPX
@@ -663,38 +704,39 @@ async function exportToGPX() {
 // Initialize WebWorker
 function initializeWebWorker() {
     worker = new Worker('/static/js/worker.js');
-    worker.onmessage = function(e) {
-        const {
-            action,
-            data
-        } = e.data;
+    worker.onmessage = function (e) {
+        const { action, data } = e.data;
         if (action === 'filterFeaturesResult') {
             updateMapWithFilteredFeatures(data);
 
             // Cache the filtered results
-            const bounds = map.getBounds();
-            const cacheKey = generateCacheKey(bounds);
+            const cacheKey = generateCacheKey();
             cacheHistoricalData(cacheKey, data);
         }
     };
 }
 
-function updateMapWithFilteredFeatures(features) {
-  if (historicalDataLayer) {
-      map.removeLayer(historicalDataLayer);
-  }
+function updateMapWithFilteredFeatures(data, fitBounds = true) {
+    if (historicalDataLayer) {
+        map.removeLayer(historicalDataLayer);
+    }
 
-  historicalDataLayer = L.geoJSON(features, {
-      style: { color: 'blue', weight: 2, opacity: 0.25 },
-      onEachFeature: addRoutePopup
-  }).addTo(map);
+    historicalDataLayer = L.geoJSON(data, {
+        style: { color: 'blue', weight: 2, opacity: 0.25 },
+        onEachFeature: addRoutePopup
+    }).addTo(map);
 
-  // Update total historical distance
-  const totalDistance = calculateTotalDistance(features);
-  document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
+    // Update total historical distance
+    const totalDistance = calculateTotalDistance(data.features);
+    document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
 
-  showFeedback(`Displayed ${features.length} historical features`, 'success');
-  enableFilterButtons(); // Re-enable buttons here
+    showFeedback(`Displayed ${data.features.length} historical features`, 'success');
+    enableFilterButtons();
+
+    // Fit the map to the bounds of the historical data if requested
+    if (fitBounds && data.features.length > 0) {
+        map.fitBounds(historicalDataLayer.getBounds());
+    }
 }
 
 // Function to check historical data status
@@ -839,12 +881,12 @@ function setupEventListeners() {
                 }
 
                 searchMarker = L.marker([latitude, longitude], {
-                        icon: L.divIcon({
-                            className: 'custom-marker',
-                            iconSize: [30, 30],
-                            html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
-                        })
-                    }).addTo(map)
+                    icon: L.divIcon({
+                        className: 'custom-marker',
+                        iconSize: [30, 30],
+                        html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
+                    })
+                }).addTo(map)
                     .bindPopup(`<b>${address}</b>`)
                     .openPopup();
 
@@ -946,26 +988,26 @@ function debounce(func, wait) {
 }
 
 // DOMContentLoaded event listener
-document.addEventListener('DOMContentLoaded', function() {
-  map = initializeMap();
-  initializeDataPolling();
-  initializeWebWorker();
-  setupEventListeners();
+document.addEventListener('DOMContentLoaded', function () {
+    map = initializeMap(); // Initialize the map
+    initializeDataPolling();
+    initializeWebWorker();
+    setupEventListeners();
 
-  // Check with the server if any long-running process is active
-  fetch('/processing_status')
-      .then(response => response.json())
-      .then(data => {
-          if (data.isProcessing) {
-              isProcessing = true;
-              disableUI();
-              showFeedback('A background task is in progress. Please wait.', 'info');
-          } else {
-              initializeApp();
-          }
-      })
-      .catch(error => {
-          console.error('Error checking processing status:', error);
-          showFeedback('Error checking application status. Please refresh the page.', 'error');
-      });
-});
+    // Check with the server if any long-running process is active
+    fetch('/processing_status')
+        .then(response => response.json())
+        .       then(data => {
+            if (data.isProcessing) {
+                isProcessing = true;
+                disableUI();
+                showFeedback('A background task is in progress. Please wait.', 'info');
+            } else {
+                initializeApp();
+            }
+        })
+        .catch(error => {
+            console.error('Error checking processing status:', error);
+            showFeedback('Error checking application status. Please refresh the page.', 'error');
+        });
+  });
