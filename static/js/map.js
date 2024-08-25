@@ -131,11 +131,7 @@ function initializeMap() {
   map.on(L.Draw.Event.DELETED, () => {
     displayHistoricalData(); // Revert to default filtering
   });
-
-  map.on('moveend', function () {
-    displayHistoricalData();
-  });
-}
+} // <-- Moved the closing brace here
 
 // Function to load Waco city limits
 async function loadWacoLimits(boundaryType) {
