@@ -151,7 +151,15 @@ async def update_progress():
 @app.route('/untraveled_streets')
 async def get_untraveled_streets():
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
-    geojson_data = waco_analyzer.get_progress_geojson(waco_boundary)
+    
+    # Get the untraveled streets GeoJSON
+    geojson_data = waco_analyzer.get_progress_geojson() 
+
+    # Filter the streets by Waco boundary (if filter is applied)
+    if waco_boundary != 'none':
+        waco_limits = geojson_handler.load_waco_boundary(waco_boundary)
+        geojson_data = geojson_handler.filter_streets_by_boundary(geojson_data, waco_limits)
+
     return jsonify(geojson_data)
 
 # Bouncie API Routes

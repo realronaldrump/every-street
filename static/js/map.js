@@ -892,7 +892,7 @@ async function loadUntraveledStreets() {
             style: {
                 color: 'white',
                 weight: 2,
-                opacity: 0.7
+                opacity: 0.4
             },
             filter: feature => !feature.properties.traveled
         }).addTo(map); 

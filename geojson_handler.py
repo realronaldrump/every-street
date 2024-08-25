@@ -5,6 +5,7 @@ import logging
 import aiofiles
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
+from geopandas import gpd
 
 import aiohttp
 from shapely.geometry import Polygon, LineString, MultiLineString, box, shape
@@ -49,20 +50,28 @@ class GeoJSONHandler:
     def load_waco_boundary(self, boundary_type):
         """Loads the specified Waco boundary from a GeoJSON file."""
         try:
-            with open(f"static/{boundary_type}.geojson", "r") as f:
-                data = json.load(f)
-                features = data.get("features", [])
-                if features:
-                    return features[0]["geometry"]["coordinates"]
-                else:
-                    logging.error(f"No features found in {boundary_type}.geojson")
-                    return None
+            # Use GeoPandas to read the boundary file
+            gdf = gpd.read_file(f"static/{boundary_type}.geojson")
+            if not gdf.empty:
+                return gdf.geometry[0]  # Return the first geometry (polygon)
+            else:
+                logging.error(f"No features found in {boundary_type}.geojson")
+                return None
         except FileNotFoundError:
             logging.error(f"File not found: static/{boundary_type}.geojson")
             return None
         except Exception as e:
             logging.error(f"Error loading Waco boundary: {e}")
             return None
+
+    def filter_streets_by_boundary(self, streets_geojson, waco_limits):
+        """Filters street features that are within the Waco boundary."""
+        filtered_features = []
+        for feature in streets_geojson['features']:
+            street_geometry = shape(feature['geometry'])
+            if street_geometry.intersects(waco_limits):
+                filtered_features.append(feature)
+        return {"type": "FeatureCollection", "features": filtered_features}
 
     def clip_route_to_boundary(self, feature, waco_limits):
         try:
