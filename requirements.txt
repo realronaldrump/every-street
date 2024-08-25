@@ -10,3 +10,4 @@ redis
 quart
 hypercorn
 quart_cors
+geopandas

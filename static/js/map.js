@@ -1,5 +1,6 @@
 // Global variables
 let map, wacoLimits, liveMarker, historicalDataLayer, liveRoutePolyline, playbackAnimation, playbackPolyline, playbackMarker, liveRouteDataLayer;
+let progressLayer, untraveledStreetsLayer;
 let playbackSpeed = 1;
 let isPlaying = false;
 let currentCoordIndex = 0;
@@ -16,6 +17,7 @@ const MAX_CACHE_SIZE = 10; // Maximum number of cached items
 let historicalDataLoadAttempts = 0;
 const MAX_LOAD_ATTEMPTS = 3;
 let isLoadingHistoricalData = false;
+let progressBar, progressText;
 
 // DOM elements
 const filterWacoCheckbox = document.getElementById('filterWaco');
@@ -117,6 +119,28 @@ function initializeMap() {
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19
     }).addTo(map);
+
+    // Add progress controls
+    let progressControl = L.control({position: 'bottomleft'});
+    progressControl.onAdd = function (map) {
+        let div = L.DomUtil.create('div', 'progress-control');
+        div.innerHTML = '<div id="progress-bar-container"><div id="progress-bar"></div></div><div id="progress-text"></div>';
+        return div;
+    };
+    progressControl.addTo(map);
+
+    progressBar = document.getElementById('progress-bar');
+    progressText = document.getElementById('progress-text');
+
+    // Add button for toggling untraveled streets
+    let toggleButton = L.control({position: 'topleft'});
+    toggleButton.onAdd = function (map) {
+        let btn = L.DomUtil.create('button', 'toggle-untraveled-btn');
+        btn.innerHTML = 'Toggle Untraveled Streets';
+        btn.onclick = toggleUntraveledStreets;
+        return btn;
+    };
+    toggleButton.addTo(map);
 
     // Initialize drawing tools
     drawnItems = new L.FeatureGroup();
@@ -805,6 +829,13 @@ async function initializeApp() {
 
         await loadWacoLimits(selectedWacoBoundary);
         await checkHistoricalDataStatus();
+        await updateProgress();
+        await loadUntraveledStreets();
+
+        // Set up periodic updates
+        setInterval(updateProgress, 60000);  // Update progress every minute
+        setInterval(loadUntraveledStreets, 300000);  // Update untraveled streets every 5 minutes
+
 
         if (!historicalDataLoaded) {
             const checkInterval = setInterval(async () => {
@@ -828,7 +859,45 @@ async function initializeApp() {
         showFeedback(`Error initializing application: ${error.message}. Please refresh the page.`, 'error');
     }
 }
+async function updateProgress() {
+    try {
+        const response = await fetch('/update_progress');
+        const data = await response.json();
+        progressBar.style.width = `${data.progress}%`;
+        progressText.textContent = `${data.progress.toFixed(2)}% of Waco streets traveled`;
+    } catch (error) {
+        console.error('Error updating progress:', error);
+    }
+}
 
+async function loadUntraveledStreets() {
+    try {
+        const response = await fetch('/untraveled_streets');
+        const data = await response.json();
+        
+        if (untraveledStreetsLayer) {
+            map.removeLayer(untraveledStreetsLayer);
+        }
+        
+        untraveledStreetsLayer = L.geoJSON(data.untraveled_streets, {
+            style: {
+                color: 'red',
+                weight: 2,
+                opacity: 0.7
+            }
+        });
+    } catch (error) {
+        console.error('Error loading untraveled streets:', error);
+    }
+}
+
+function toggleUntraveledStreets() {
+    if (map.hasLayer(untraveledStreetsLayer)) {
+        map.removeLayer(untraveledStreetsLayer);
+    } else {
+        untraveledStreetsLayer.addTo(map);
+    }
+}
 // Setup event listeners
 function setupEventListeners() {
     applyFilterBtn.addEventListener('click', handleBackgroundTask(async () => {
@@ -877,6 +946,12 @@ function setupEventListeners() {
     playbackSpeedInput.addEventListener('input', () => {
         adjustPlaybackSpeed();
         showFeedback(`Playback speed set to ${playbackSpeed.toFixed(1)}x`, 'info');
+    });
+
+    // Update progress when new data is loaded
+    updateDataBtn.addEventListener('click', async () => {
+        await updateProgress();
+        await loadUntraveledStreets();
     });
 
     searchBtn.addEventListener('click', handleBackgroundTask(async () => {

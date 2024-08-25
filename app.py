@@ -20,6 +20,7 @@ import gzip
 from typing import List
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range
 from shapely.geometry import shape, box
+from waco_streets_analyzer import WacoStreetsAnalyzer
 
 # Set up logging
 log_directory = "logs"
@@ -102,6 +103,28 @@ class TaskManager:
         await asyncio.gather(*tasks, return_exceptions=True)
 
 app.task_manager = TaskManager()
+
+# Initialize WacoStreetsAnalyzer
+waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
+
+@app.route('/calculate_progress')
+async def calculate_progress():
+    progress = waco_analyzer.calculate_progress()
+    return jsonify({'progress': progress})
+
+@app.route('/update_progress')
+async def update_progress():
+    # Fetch recent historical data
+    recent_data = await geojson_handler.get_recent_historical_data()
+    
+    waco_analyzer.incremental_update(recent_data)
+    
+    progress = waco_analyzer.calculate_progress()
+    return jsonify({'progress': progress})
+
+@app.route('/untraveled_streets')
+async def get_untraveled_streets():
+    return jsonify(waco_analyzer.get_progress_geojson())
 
 def load_live_route_data():
     try:
