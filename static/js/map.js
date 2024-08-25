@@ -12,24 +12,24 @@ let isProcessing = false;
 const processingQueue = [];
 
 // DOM elements
-let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBtn, stopBtn, playbackSpeedInput, speedValueSpan, wacoBoundarySelect, clearRouteBtn, applyFilterBtn, searchInput, searchBtn;
+let filterWacoCheckbox, startDateInput, endDateInput, updateDataBtn, playPauseBtn, stopBtn, playbackSpeedInput, speedValueSpan, wacoBoundarySelect, clearRouteBtn, applyFilterBtn, searchInput, searchBtn, exportToGPXBtn, clearDrawnShapesBtn;
 
 // Enhanced feedback function
 function showFeedback(message, type = 'info', duration = 5000) {
   const feedbackContainer = document.getElementById('feedback-container');
   const feedbackElement = document.createElement('div');
   feedbackElement.className = `feedback ${type}`;
-  
+
   const icon = document.createElement('span');
   icon.className = 'feedback-icon';
   icon.textContent = type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️';
-  
+
   const textElement = document.createElement('span');
   textElement.textContent = message;
-  
+
   feedbackElement.appendChild(icon);
   feedbackElement.appendChild(textElement);
-  
+
   feedbackContainer.appendChild(feedbackElement);
 
   setTimeout(() => {
@@ -40,7 +40,7 @@ function showFeedback(message, type = 'info', duration = 5000) {
 
 // Function to handle background tasks and UI locking
 function handleBackgroundTask(taskFunction, feedbackMessage) {
-  return async function(...args) {
+  return async function (...args) {
     if (isProcessing) {
       showFeedback('A task is already in progress. Please wait.', 'warning');
       return;
@@ -132,7 +132,7 @@ function initializeMap() {
     displayHistoricalData(); // Revert to default filtering
   });
 
-  map.on('moveend', function() {
+  map.on('moveend', function () {
     displayHistoricalData();
   });
 }
@@ -562,7 +562,7 @@ async function exportToGPX() {
 // Initialize WebWorker
 function initializeWebWorker() {
   worker = new Worker('/static/js/worker.js');
-  worker.onmessage = function(e) {
+  worker.onmessage = function (e) {
     const { action, data } = e.data;
     if (action === 'filterFeaturesResult') {
       updateMapWithFilteredFeatures(data);
@@ -611,12 +611,12 @@ async function checkHistoricalDataStatus() {
 async function initializeApp() {
   try {
     endDateInput.value = new Date().toISOString().slice(0, 10);
-    
+
     showFeedback('Initializing application...', 'info');
-    
+
     await loadWacoLimits(selectedWacoBoundary);
     await checkHistoricalDataStatus();
-    
+
     if (!historicalDataLoaded) {
       const checkInterval = setInterval(async () => {
         await checkHistoricalDataStatus();
@@ -627,10 +627,10 @@ async function initializeApp() {
         }
       }, 5000); // Check every 5 seconds
     }
-    
+
     await loadLiveRouteData(); // Load the live route data on startup
     setInterval(updateLiveDataAndMetrics, 3000);
-    
+
     showFeedback('Application initialized successfully', 'success');
   } catch (error) {
     console.error('Error initializing application:', error);
@@ -734,7 +734,7 @@ function setupEventListeners() {
   searchInput.addEventListener('input', handleBackgroundTask(async () => {
     const query = searchInput.value;
     const suggestionsContainer = document.getElementById('searchSuggestions');
-    
+
     // Clear the suggestions container when input changes
     suggestionsContainer.innerHTML = '';
 
@@ -761,10 +761,16 @@ function setupEventListeners() {
       console.error('Error fetching search suggestions:', error);
     }
   }, 'Fetching search suggestions...'));
+
+  // Event listener for Export to GPX button
+  exportToGPXBtn.addEventListener('click', handleBackgroundTask(exportToGPX, 'Exporting to GPX...'));
+
+  // Event listener for Clear Drawn Shapes button
+  clearDrawnShapesBtn.addEventListener('click', handleBackgroundTask(clearDrawnShapes, 'Clearing drawn shapes...'));
 }
 
 // DOMContentLoaded event listener
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
   // Initialize DOM elements
   filterWacoCheckbox = document.getElementById('filterWaco');
   startDateInput = document.getElementById('startDate');
@@ -779,6 +785,8 @@ document.addEventListener('DOMContentLoaded', function() {
   applyFilterBtn = document.getElementById('applyFilterBtn');
   searchInput = document.getElementById('searchInput');
   searchBtn = document.getElementById('searchBtn');
+  exportToGPXBtn = document.getElementById('exportToGPXBtn');
+  clearDrawnShapesBtn = document.getElementById('clearDrawnShapesBtn');
 
   let searchMarker;
 
@@ -786,7 +794,7 @@ document.addEventListener('DOMContentLoaded', function() {
   initializeDataPolling();
   initializeWebWorker();
   setupEventListeners();
-  
+
   // Check with the server if any long-running process is active
   fetch('/processing_status')
     .then(response => response.json())
