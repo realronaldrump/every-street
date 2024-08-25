@@ -28,6 +28,7 @@ const searchInput = document.getElementById('searchInput');
 const searchBtn = document.getElementById('searchBtn');
 const exportToGPXBtn = document.getElementById('exportToGPXBtn');
 const clearDrawnShapesBtn = document.getElementById('clearDrawnShapesBtn');
+const suggestionsContainer = document.getElementById('searchSuggestions'); // Get the suggestions container
 
 let searchMarker; // For search functionality
 
@@ -294,7 +295,6 @@ function updateLiveData(data) {
   }
 }
 
-
 // Function to display historical data
 async function displayHistoricalData() {
   if (!historicalDataLoaded) {
@@ -305,8 +305,7 @@ async function displayHistoricalData() {
   try {
     showFeedback('Loading historical data...', 'info');
     const wacoBoundary = wacoBoundarySelect.value;
-    const bounds = map.getBounds();
-    const cacheKey = `${startDateInput.value}-${endDateInput.value}-${filterWacoCheckbox.checked}-${wacoBoundary}-${bounds.toBBoxString()}`;
+    const cacheKey = `${startDateInput.value}-${endDateInput.value}-${filterWacoCheckbox.checked}-${wacoBoundary}`; // Removed bounds from cache key
 
     if (historicalDataCache[cacheKey]) {
       // Use cached data
@@ -315,24 +314,28 @@ async function displayHistoricalData() {
     } else {
       // Fetch and cache data
       console.log('Fetching new historical data');
-      const response = await fetch(`/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}&bounds=${JSON.stringify(bounds.toBBoxString().split(','))}`);
+
+      // Removed bounds parameter from the request
+      const response = await fetch(`/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}`);
+
       const compressedData = await response.arrayBuffer();
       const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
       const data = JSON.parse(decompressedData);
 
       historicalDataCache[cacheKey] = data; // Cache the data
 
+      // Send all features to the worker for initial filtering
       worker.postMessage({
         action: 'filterFeatures',
         data: {
           features: data.features,
-          bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+          bounds: [] // Empty bounds to include all features
         }
       });
     }
   } catch (error) {
     console.error('Error displaying historical data:', error);
-    showFeedback('Error loading monthly historical data. Please try again.', 'error');
+    showFeedback('Error loading historical data. Please try again.', 'error');
   }
 }
 
@@ -757,26 +760,26 @@ function setupEventListeners() {
     }
   }, 'Searching for location...'));
 
-  searchInput.addEventListener('input', async () => { // Removed handleBackgroundTask
+  // Search input event listener with debounce
+  searchInput.addEventListener('input', debounce(async () => {
     const query = searchInput.value;
-    const suggestionsContainer = document.getElementById('searchSuggestions');
     suggestionsContainer.innerHTML = '';
-  
+
     if (query.length < 3) {
       return;
     }
-  
+
     try {
       const response = await fetch(`/search_suggestions?query=${query}`);
       const suggestions = await response.json();
-  
+
       if (suggestions.length > 0) {
         suggestions.forEach(suggestion => {
           const suggestionElement = document.createElement('div');
           suggestionElement.textContent = suggestion.address;
           suggestionElement.addEventListener('click', () => {
             searchInput.value = suggestion.address;
-            suggestionsContainer.innerHTML = '';
+            suggestionsContainer.innerHTML = ''; // Clear suggestions on click
           });
           suggestionsContainer.appendChild(suggestionElement);
         });
@@ -784,14 +787,18 @@ function setupEventListeners() {
     } catch (error) {
       console.error('Error fetching search suggestions:', error);
     }
+  }, 300)); // Debounce with 300ms delay
+
+  // Hide suggestions when Enter is pressed or Search button is clicked
+  searchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      suggestionsContainer.innerHTML = '';
+    }
   });
 
-
-  // Event listener for Export to GPX button
-  exportToGPXBtn.addEventListener('click', handleBackgroundTask(exportToGPX, 'Exporting to GPX...'));
-
-  // Event listener for Clear Drawn Shapes button
-  clearDrawnShapesBtn.addEventListener('click', handleBackgroundTask(clearDrawnShapes, 'Clearing drawn shapes...'));
+  searchBtn.addEventListener('click', () => {
+    suggestionsContainer.innerHTML = '';
+  });
 
   // Event listeners for filter inputs (using 'change' event)
   filterWacoCheckbox.addEventListener('change', handleBackgroundTask(async () => {
@@ -815,6 +822,23 @@ function setupEventListeners() {
     await displayHistoricalData();
     showFeedback('Filters applied successfully', 'success');
   }, 'Applying filters...'));
+
+  // Event listener for Export to GPX button
+  exportToGPXBtn.addEventListener('click', handleBackgroundTask(exportToGPX, 'Exporting to GPX...'));
+
+  // Event listener for Clear Drawn Shapes button
+  clearDrawnShapesBtn.addEventListener('click', handleBackgroundTask(clearDrawnShapes, 'Clearing drawn shapes...'));
+}
+
+// Debounce function
+function debounce(func, wait) {
+  let timeout;
+  return function (...args) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => {
+      func.apply(this, args);
+    }, wait);
+  };
 }
 
 // DOMContentLoaded event listener
