@@ -18,11 +18,11 @@ from geopy.geocoders import Nominatim
 import redis
 import gzip
 from typing import List
-from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range
-from shapely.geometry import shape, box
+from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
+from shapely.geometry import shape, box, LineString, Polygon
 from waco_streets_analyzer import WacoStreetsAnalyzer
 
-# Set up logging
+# Logging Setup
 log_directory = "logs"
 if not os.path.exists(log_directory):
     os.makedirs(log_directory)
@@ -41,8 +41,10 @@ logging.getLogger().addHandler(console_handler)
 
 logging.info("Logging initialized")
 
+# Load environment variables
 load_dotenv()
 
+# Login Decorator
 def login_required(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
@@ -51,6 +53,7 @@ def login_required(func):
         return await func(*args, **kwargs)
     return wrapper
 
+# Initialize Flask App
 app = Quart(__name__)
 app = cors(app)
 app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
@@ -61,7 +64,7 @@ app.historical_data_loaded = False
 app.historical_data_loading = False
 app.is_processing = False
 
-# Redis configuration
+# Redis Configuration (for caching - optional)
 redis_url = os.getenv('REDIS_URL')
 if redis_url and redis_url.startswith(('redis://', 'rediss://', 'unix://')):
     try:
@@ -75,18 +78,24 @@ else:
     print("Redis URL not set or invalid. Running without Redis.")
     redis_client = None
 
+# Initialize API Clients and Handlers
 geojson_handler = GeoJSONHandler()
 geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 bouncie_api = BouncieAPI()
 gpx_exporter = GPXExporter(geojson_handler)
 
-# Create locks for shared resources
+# Initialize WacoStreetsAnalyzer
+waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
+
+# Asynchronous Locks (for thread safety)
 historical_data_lock = asyncio.Lock()
 processing_lock = asyncio.Lock()
 live_route_lock = asyncio.Lock()
 
+# Live Route Data File
 LIVE_ROUTE_DATA_FILE = "live_route_data.geojson"
 
+# Task Manager (for background tasks)
 class TaskManager:
     def __init__(self):
         self.tasks = set()
@@ -104,28 +113,7 @@ class TaskManager:
 
 app.task_manager = TaskManager()
 
-# Initialize WacoStreetsAnalyzer
-waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
-
-@app.route('/calculate_progress')
-async def calculate_progress():
-    progress = waco_analyzer.calculate_progress()
-    return jsonify({'progress': progress})
-
-@app.route('/update_progress')
-async def update_progress():
-    # Fetch recent historical data
-    recent_data = await geojson_handler.get_recent_historical_data()
-    
-    waco_analyzer.incremental_update(recent_data)
-    
-    progress = waco_analyzer.calculate_progress()
-    return jsonify({'progress': progress})
-
-@app.route('/untraveled_streets')
-async def get_untraveled_streets():
-    return jsonify(waco_analyzer.get_progress_geojson())
-
+# Load live route data from file
 def load_live_route_data():
     try:
         with open(LIVE_ROUTE_DATA_FILE, "r") as f:
@@ -139,96 +127,45 @@ def load_live_route_data():
         logging.error(f"Error decoding JSON from {LIVE_ROUTE_DATA_FILE}. File may be corrupted.")
         return {"type": "FeatureCollection", "features": []}
 
+# Save live route data to file
 def save_live_route_data(data):
     with open(LIVE_ROUTE_DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-async def poll_bouncie_api():
-    while True:
-        try:
-            bouncie_data = await bouncie_api.get_latest_bouncie_data()
-            if bouncie_data:
-                async with live_route_lock:
-                    app.live_route_data = load_live_route_data()
+# ------------------------------ ROUTES ------------------------------ #
 
-                    if "features" not in app.live_route_data:
-                        app.live_route_data["features"] = [{
-                            "type": "Feature",
-                            "geometry": {
-                                "type": "LineString",
-                                "coordinates": []
-                            },
-                            "properties": {}
-                        }]
-                    live_route_feature = app.live_route_data["features"][0]
+# Waco Streets Progress
+@app.route('/calculate_progress')
+async def calculate_progress():
+    progress = waco_analyzer.calculate_progress()
+    return jsonify({'progress': progress})
 
-                    new_coord = [bouncie_data["longitude"], bouncie_data["latitude"]]
+@app.route('/update_progress')
+async def update_progress():
+    recent_data = await geojson_handler.get_recent_historical_data()
+    
+    waco_analyzer.update_progress(recent_data)
+    progress = waco_analyzer.calculate_progress()
+    return jsonify({'progress': progress})
 
-                    if not live_route_feature["geometry"]["coordinates"] or new_coord != live_route_feature["geometry"]["coordinates"][-1]:
-                        live_route_feature["geometry"]["coordinates"].append(new_coord)
-                        save_live_route_data(app.live_route_data)
-                        app.latest_bouncie_data = bouncie_data
-                    else:
-                        logging.info("Duplicate point detected, not adding to live route.")
+@app.route('/untraveled_streets')
+async def get_untraveled_streets():
+    waco_boundary = request.args.get("wacoBoundary", "city_limits")
+    geojson_data = waco_analyzer.get_progress_geojson(waco_boundary)
+    return jsonify(geojson_data)
 
-            await asyncio.sleep(1)
-
-        except Exception as e:
-            logging.error(f"An error occurred while fetching live data: {e}")
-            await asyncio.sleep(5)
-
+# Bouncie API Routes
 @app.route("/latest_bouncie_data")
 async def get_latest_bouncie_data():
     async with live_route_lock:
         return jsonify(getattr(app, 'latest_bouncie_data', {}))
-
-@app.before_serving
-async def startup():
-    app.live_route_data = load_live_route_data()
-
-    app.task_manager.add_task(load_historical_data_background())
-    app.task_manager.add_task(poll_bouncie_api())
-    logging.info(f"Available routes: {app.url_map}")
-
-async def load_historical_data_background():
-    async with historical_data_lock:
-        if not app.historical_data_loaded and not app.historical_data_loading:
-            app.historical_data_loading = True
-            try:
-                await geojson_handler.load_historical_data()
-                app.historical_data_loaded = True
-            finally:
-                app.historical_data_loading = False
 
 @app.route("/live_route", methods=["GET"])
 async def live_route():
     async with live_route_lock:
         return jsonify(getattr(app, 'live_route_data', {}))
 
-@app.route("/login", methods=["GET", "POST"])
-async def login():
-    if request.method == "POST":
-        form = await request.form
-        pin = form.get("pin")
-        if pin == app.config["PIN"]:
-            session["authenticated"] = True
-            return redirect(url_for("index"))
-        else:
-            return await render_template("login.html", error="Invalid PIN. Please try again.")
-    return await render_template("login.html")
-
-@app.route("/logout", methods=["GET", "POST"])
-async def logout():
-    session.pop("authenticated", None)
-    return redirect(url_for("login"))
-
-@app.route("/")
-@login_required
-async def index():
-    today = datetime.now().strftime("%Y-%m-%d")
-    async with historical_data_lock:
-        return await render_template("index.html", today=today, historical_data_loaded=app.historical_data_loaded)
-
+# Data Routes
 @app.route("/historical_data_status")
 async def historical_data_status():
     async with historical_data_lock:
@@ -407,9 +344,92 @@ async def processing_status():
     async with processing_lock:
         return jsonify({'isProcessing': app.is_processing})
 
+# Authentication Routes
+@app.route("/login", methods=["GET", "POST"])
+async def login():
+    if request.method == "POST":
+        form = await request.form
+        pin = form.get("pin")
+        if pin == app.config["PIN"]:
+            session["authenticated"] = True
+            return redirect(url_for("index"))
+        else:
+            return await render_template("login.html", error="Invalid PIN. Please try again.")
+    return await render_template("login.html")
+
+@app.route("/logout", methods=["GET", "POST"])
+async def logout():
+    session.pop("authenticated", None)
+    return redirect(url_for("login"))
+
+# Main Route
+@app.route("/")
+@login_required
+async def index():
+    today = datetime.now().strftime("%Y-%m-%d")
+    async with historical_data_lock:
+        return await render_template("index.html", today=today, historical_data_loaded=app.historical_data_loaded)
+
+# ------------------------------ ASYNC TASKS ------------------------------ #
+
+async def poll_bouncie_api():
+    while True:
+        try:
+            bouncie_data = await bouncie_api.get_latest_bouncie_data()
+            if bouncie_data:
+                async with live_route_lock:
+                    app.live_route_data = load_live_route_data()
+
+                    if "features" not in app.live_route_data:
+                        app.live_route_data["features"] = [{
+                            "type": "Feature",
+                            "geometry": {
+                                "type": "LineString",
+                                "coordinates": []
+                            },
+                            "properties": {}
+                        }]
+                    live_route_feature = app.live_route_data["features"][0]
+
+                    new_coord = [bouncie_data["longitude"], bouncie_data["latitude"]]
+
+                    if not live_route_feature["geometry"]["coordinates"] or new_coord != live_route_feature["geometry"]["coordinates"][-1]:
+                        live_route_feature["geometry"]["coordinates"].append(new_coord)
+                        save_live_route_data(app.live_route_data)
+                        app.latest_bouncie_data = bouncie_data
+                    else:
+                        logging.info("Duplicate point detected, not adding to live route.")
+
+            await asyncio.sleep(1)
+
+        except Exception as e:
+            logging.error(f"An error occurred while fetching live data: {e}")
+            await asyncio.sleep(5)
+
+async def load_historical_data_background():
+    async with historical_data_lock:
+        if not app.historical_data_loaded and not app.historical_data_loading:
+            app.historical_data_loading = True
+            try:
+                await geojson_handler.load_historical_data()
+                app.historical_data_loaded = True
+            finally:
+                app.historical_data_loading = False
+
+# ------------------------------ APP LIFECYCLE EVENTS ------------------------------ #
+
+@app.before_serving
+async def startup():
+    app.live_route_data = load_live_route_data()
+    app.task_manager.add_task(load_historical_data_background())
+    app.task_manager.add_task(poll_bouncie_api())
+    logging.info(f"Available routes: {app.url_map}")
+
 @app.after_serving
 async def shutdown():
     await app.task_manager.cancel_all()
+
+# ------------------------------ RUN APP ------------------------------ #
 
 if __name__ == "__main__":
     # Create a new event loop and set it as the current event loop

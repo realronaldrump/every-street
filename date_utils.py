@@ -53,3 +53,7 @@ def date_range(start_date: Union[str, datetime], end_date: Union[str, datetime])
     while start <= end:
         yield start
         start += timedelta(days=1)
+
+def days_ago(num_days: int) -> datetime:
+    """Returns the datetime object for the date num_days ago from now."""
+    return datetime.now(timezone.utc) - timedelta(days=num_days)

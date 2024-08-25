@@ -65,7 +65,7 @@ function showFeedback(message, type = 'info', duration = 5000) {
 
 // Function to handle background tasks and UI locking
 function handleBackgroundTask(taskFunction, feedbackMessage) {
-    return async function(...args) {
+    return async function (...args) {
         if (isProcessing) {
             showFeedback('A task is already in progress. Please wait.', 'warning');
             return;
@@ -215,7 +215,6 @@ async function loadWacoLimits(boundaryType) {
     }
 }
 
-
 // Function to clear the live route
 function clearLiveRoute() {
     if (liveRoutePolyline) {
@@ -264,7 +263,7 @@ async function loadLiveRouteData() {
             return; // Exit the function if the data is invalid
         }
 
-        // Extract the LineString coordinates 
+        // Extract the LineString coordinates
         const coordinates = data.features[0].geometry.coordinates;
 
         // Create the new live route polyline
@@ -350,7 +349,6 @@ function updateLiveData(data) {
                 "timestamp": data.timestamp
             }
         });
-
     }
 }
 
@@ -827,15 +825,14 @@ async function initializeApp() {
 
         showFeedback('Initializing application...', 'info');
 
-        await loadWacoLimits(selectedWacoBoundary);
+        await loadWacoLimits(selectedWacoBoundary); // Load Waco limits on startup
         await checkHistoricalDataStatus();
         await updateProgress();
-        await loadUntraveledStreets();
+        await loadUntraveledStreets(); // Load untraveled streets on startup
 
-        // Set up periodic updates
-        setInterval(updateProgress, 60000);  // Update progress every minute
-        setInterval(loadUntraveledStreets, 300000);  // Update untraveled streets every 5 minutes
-
+        // Set up periodic updates (for data, not for layers)
+        setInterval(updateProgress, 60000); 
+        setInterval(loadUntraveledStreets, 300000); 
 
         if (!historicalDataLoaded) {
             const checkInterval = setInterval(async () => {
@@ -844,13 +841,13 @@ async function initializeApp() {
                     clearInterval(checkInterval);
                     if (historicalDataLoaded) {
                         showFeedback('Historical data loaded successfully', 'success');
-                        await displayHistoricalData();
+                        await displayHistoricalData(); // Display historical data on load
                     }
                 }
-            }, 5000); // Check every 5 seconds
+            }, 5000); 
         }
 
-        await loadLiveRouteData(); // Load the live route data on startup
+        await loadLiveRouteData(); 
         setInterval(updateLiveDataAndMetrics, 3000);
 
         showFeedback('Application initialized successfully', 'success');
@@ -859,45 +856,60 @@ async function initializeApp() {
         showFeedback(`Error initializing application: ${error.message}. Please refresh the page.`, 'error');
     }
 }
+
 async function updateProgress() {
     try {
         const response = await fetch('/update_progress');
+        if (!response.ok) {
+            throw new Error(`Error updating progress: ${response.status} ${response.statusText}`);
+        }
+
         const data = await response.json();
         progressBar.style.width = `${data.progress}%`;
         progressText.textContent = `${data.progress.toFixed(2)}% of Waco streets traveled`;
     } catch (error) {
         console.error('Error updating progress:', error);
+        showFeedback(error.message, 'error');
     }
 }
 
 async function loadUntraveledStreets() {
     try {
-        const response = await fetch('/untraveled_streets');
+        // Include Waco boundary in the request
+        const response = await fetch(`/untraveled_streets?wacoBoundary=${wacoBoundarySelect.value}`); 
+
+        if (!response.ok) {
+            throw new Error(`Error loading untraveled streets: ${response.status} ${response.statusText}`);
+        }
+
         const data = await response.json();
-        
+
         if (untraveledStreetsLayer) {
             map.removeLayer(untraveledStreetsLayer);
         }
-        
-        untraveledStreetsLayer = L.geoJSON(data.untraveled_streets, {
+
+        untraveledStreetsLayer = L.geoJSON(data, {
             style: {
-                color: 'red',
+                color: 'white',
                 weight: 2,
                 opacity: 0.7
-            }
-        });
+            },
+            filter: feature => !feature.properties.traveled
+        }).addTo(map); 
     } catch (error) {
         console.error('Error loading untraveled streets:', error);
+        showFeedback(error.message, 'error');
     }
 }
 
 function toggleUntraveledStreets() {
-    if (map.hasLayer(untraveledStreetsLayer)) {
+    if (untraveledStreetsLayer && map.hasLayer(untraveledStreetsLayer)) {
         map.removeLayer(untraveledStreetsLayer);
-    } else {
+    } else if (untraveledStreetsLayer) { // Make sure untraveledStreetsLayer is defined
         untraveledStreetsLayer.addTo(map);
     }
 }
+
 // Setup event listeners
 function setupEventListeners() {
     applyFilterBtn.addEventListener('click', handleBackgroundTask(async () => {
@@ -1045,24 +1057,24 @@ function setupEventListeners() {
 
     // Event listeners for filter inputs (using 'change' event)
     filterWacoCheckbox.addEventListener('change', handleBackgroundTask(async () => {
-        await loadWacoLimits(wacoBoundarySelect.value);
-        await displayHistoricalData();
+        await loadWacoLimits(wacoBoundarySelect.value);  // Reload Waco limits only when the checkbox changes
+        await displayHistoricalData(); // Reload historical data when filter changes
         showFeedback('Filters applied successfully', 'success');
     }, 'Applying filters...'));
 
     startDateInput.addEventListener('change', handleBackgroundTask(async () => {
-        await displayHistoricalData();
+        await displayHistoricalData(); // Reload historical data when filter changes
         showFeedback('Filters applied successfully', 'success');
     }, 'Applying filters...'));
 
     endDateInput.addEventListener('change', handleBackgroundTask(async () => {
-        await displayHistoricalData();
+        await displayHistoricalData(); // Reload historical data when filter changes
         showFeedback('Filters applied successfully', 'success');
     }, 'Applying filters...'));
 
     wacoBoundarySelect.addEventListener('change', handleBackgroundTask(async () => {
-        await loadWacoLimits(wacoBoundarySelect.value);
-        await displayHistoricalData();
+        await loadWacoLimits(wacoBoundarySelect.value); // Reload Waco limits when boundary selection changes 
+        await displayHistoricalData(); // Reload historical data when filter changes
         showFeedback('Filters applied successfully', 'success');
     }, 'Applying filters...'));
 
@@ -1087,7 +1099,7 @@ function debounce(func, wait) {
 }
 
 // DOMContentLoaded event listener
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     map = initializeMap(); // Initialize the map
     initializeDataPolling();
     initializeWebWorker();

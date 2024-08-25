@@ -1,71 +1,87 @@
+import logging
 import geopandas as gpd
-from rtree import index
-import shapely
-from shapely.ops import linemerge, unary_union
-import multiprocessing
+from shapely.geometry import LineString, MultiLineString, Point
+from shapely.ops import nearest_points
+
+# Configure logging 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class WacoStreetsAnalyzer:
-    def __init__(self, waco_streets_file):
+    def __init__(self, waco_streets_file, snap_distance=0.001):
+        logging.info("Initializing WacoStreetsAnalyzer...") 
         self.streets_gdf = gpd.read_file(waco_streets_file)
-        self.streets_index = index.Index()
+        self.snap_distance = snap_distance
+        self.streets_index = self.streets_gdf.sindex 
         self.traveled_segments = set()
-        
-        for idx, street in self.streets_gdf.iterrows():
-            self.streets_index.insert(idx, street.geometry.bounds)
-            if 'name' not in street:
-                street['name'] = f"Street_{idx}"  # Fallback name if not provided
 
-    def get_nearby_streets(self, point, distance):
-        bounds = point.buffer(distance).bounds
-        return [self.streets_gdf.iloc[i] for i in self.streets_index.intersection(bounds)]
+        self.streets_gdf['street_id'] = self.streets_gdf.apply(
+            lambda row: row.get('osm_id', row.get('id', f"Street_{row.name}")), axis=1
+        )
+        logging.info(f"Loaded {len(self.streets_gdf)} streets from GeoJSON.")
 
-    def match_route(self, route, buffer_distance=10):
-        route_buffer = route.buffer(buffer_distance)
-        nearby_streets = self.get_nearby_streets(route.centroid, buffer_distance * 2)
-        
-        matched_streets = []
-        for street in nearby_streets:
-            intersection = street.geometry.intersection(route_buffer)
-            if not intersection.is_empty:
-                matched_streets.append((street, intersection))
-        
-        return matched_streets
+    def _snap_point_to_street(self, point):
+        """Snaps a point to the nearest street within snap_distance."""
+        logging.debug(f"Snapping point {point} to nearest street...")
+        possible_matches_index = list(self.streets_index.intersection(point.buffer(self.snap_distance).bounds))
+        possible_matches = self.streets_gdf.iloc[possible_matches_index]
 
-    def update_traveled_segments(self, matched_streets):
-        for street, intersection in matched_streets:
-            if isinstance(intersection, (shapely.geometry.LineString, shapely.geometry.MultiLineString)):
-                self.traveled_segments.add(street['name'])
+        if len(possible_matches) == 0: 
+            logging.debug(f"No streets found near point {point} within snap distance.")
+            return point
+
+        nearest_street = nearest_points(point, possible_matches.unary_union)[1]
+        logging.debug(f"Point {point} snapped to {nearest_street}.")
+        return nearest_street
+
+    def update_progress(self, new_routes):
+        """Updates progress by snapping route points to streets."""
+        logging.info(f"Updating progress with {len(new_routes)} new routes...")
+        for i, route in enumerate(new_routes):
+            logging.debug(f"Processing route {i+1}/{len(new_routes)}...")
+            if isinstance(route, dict) and 'geometry' in route and 'coordinates' in route['geometry']:
+                coordinates = route['geometry']['coordinates']
+                for coord in coordinates:
+                    point = Point(coord[0], coord[1])
+                    snapped_point = self._snap_point_to_street(point)
+
+                    for idx, street in self.streets_gdf.iterrows():
+                        if street.geometry.distance(snapped_point) < 1e-8:
+                            self.traveled_segments.add(street['street_id'])
+                            logging.debug(f"Marked street segment {street['street_id']} as traveled.")
+                            break
+        logging.info("Progress update complete.")
 
     def calculate_progress(self):
-        total_length = sum(street.geometry.length for street in self.streets_gdf.itertuples())
-        traveled_length = sum(street.geometry.length for street in self.streets_gdf.itertuples() if street['name'] in self.traveled_segments)
-        return (traveled_length / total_length) * 100
+        """Calculates the overall progress."""
+        logging.info("Calculating progress...")
+        total_streets = len(self.streets_gdf)
+        traveled_streets = len(self.traveled_segments)
+        progress = (traveled_streets / total_streets) * 100
+        logging.info(f"Progress: {progress:.2f}%") 
+        return progress
 
-    def get_untraveled_streets(self):
-        return [street for street in self.streets_gdf.itertuples() if street['name'] not in self.traveled_segments]
+    def get_progress_geojson(self, waco_boundary='city_limits'):
+        """Generates GeoJSON for visualizing progress, optionally filtered by Waco boundary."""
+        logging.info("Generating progress GeoJSON...")
 
-    def bulk_update_progress(self, routes):
-        with multiprocessing.Pool() as pool:
-            matched_streets = pool.map(self.match_route, routes)
-        
-        for matched in matched_streets:
-            self.update_traveled_segments(matched)
+        waco_limits = None
+        if waco_boundary != "none":
+            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry[0]  # Load Waco boundary
 
-    def incremental_update(self, new_routes):
-        for route in new_routes:
-            matched_streets = self.match_route(route)
-            self.update_traveled_segments(matched_streets)
-
-    def get_progress_geojson(self):
         features = []
         for street in self.streets_gdf.itertuples():
+            # Filter streets based on Waco boundary if provided
+            if waco_limits is not None and not street.geometry.intersects(waco_limits):
+                continue  # Skip this street if it's not within the boundary
+
             feature = {
                 "type": "Feature",
                 "geometry": street.geometry.__geo_interface__,
                 "properties": {
-                    "name": street['name'],
-                    "traveled": street['name'] in self.traveled_segments
+                    "street_id": street.street_id,
+                    "traveled": street.street_id in self.traveled_segments
                 }
             }
             features.append(feature)
+        logging.info("Progress GeoJSON generated.")
         return {"type": "FeatureCollection", "features": features}

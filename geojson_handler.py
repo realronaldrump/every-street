@@ -11,7 +11,7 @@ from shapely.geometry import Polygon, LineString, MultiLineString, box, shape
 from rtree import index
 
 from bouncie_api import BouncieAPI
-from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range
+from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
@@ -173,14 +173,14 @@ class GeoJSONHandler:
             logging.info("Access token obtained")
 
             if fetch_all:
-                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)  # Adjust start date if needed
             elif self.historical_geojson_features:
                 latest_timestamp = max(
                     feature["properties"]["timestamp"]
                     for feature in self.historical_geojson_features
                     if feature["properties"].get("timestamp") is not None
                 )
-                latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
+                latest_date = datetime.fromtimestamp(latest_timestamp, timezone.utc)
             else:
                 latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
 
@@ -233,7 +233,6 @@ class GeoJSONHandler:
                 await f.write(json.dumps({"type": "FeatureCollection", "features": features}))
 
         logging.info(f"Updated monthly files with {len(new_features)} new features")
-
 
     def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, features=None, bounds=None):
         start_datetime = get_start_of_day(parse_date(start_date))
@@ -327,3 +326,18 @@ class GeoJSONHandler:
 
         logging.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
+        
+    async def get_recent_historical_data(self):
+        """Gets historical data from the last 24 hours."""
+        try:
+            yesterday = days_ago(1)
+            filtered_features = self.filter_geojson_features(
+                format_date(yesterday), 
+                format_date(datetime.now(timezone.utc)), 
+                filter_waco=False, 
+                waco_limits=None,
+            )
+            return filtered_features
+        except Exception as e:
+            logging.error(f"Error in get_recent_historical_data: {str(e)}", exc_info=True)
+            return []  # Return an empty list if there's an error
