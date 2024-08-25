@@ -17,6 +17,7 @@ from gpx_exporter import GPXExporter
 from geopy.geocoders import Nominatim
 import redis
 import gzip
+from typing import List
 
 # Set up logging
 log_directory = "logs"
@@ -198,7 +199,15 @@ async def get_historical_data():
     end_date = request.args.get("endDate", datetime.now().strftime("%Y-%m-%d"))
     filter_waco = request.args.get("filterWaco", "false").lower() == "true"
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
-    bounds = json.loads(request.args.get("bounds", "null"))
+    bounds_str = request.args.get("bounds", "null")
+
+    if bounds_str == "null":
+        bounds = None
+    else:
+        try:
+            bounds: List[float] = [float(x) for x in bounds_str.split(",")]
+        except ValueError:
+            return jsonify({"error": "Invalid bounds format"}), 400
 
     # Update cache key to remove pagination parameters
     cache_key = f"historical_data:{start_date}:{end_date}:{filter_waco}:{waco_boundary}:{bounds}"

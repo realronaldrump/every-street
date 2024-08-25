@@ -319,59 +319,69 @@ function updateLiveData(data) {
 
 // Function to display historical data
 async function displayHistoricalData() {
-    if (!historicalDataLoaded) {
-        showFeedback('Historical data is not loaded yet. Please wait or refresh the page.', 'warning');
-        return;
-    }
+  if (!historicalDataLoaded) {
+      showFeedback('Historical data is not loaded yet. Please wait or refresh the page.', 'warning');
+      return;
+  }
 
-    try {
-        showFeedback('Loading historical data...', 'info');
-        const wacoBoundary = wacoBoundarySelect.value;
-        const bounds = map.getBounds();
-        const cacheKey = generateCacheKey(bounds);
+  if (isLoadingHistoricalData) {
+      showFeedback('Already loading historical data. Please wait.', 'info');
+      return;
+  }
 
-        if (historicalDataCache[cacheKey]) {
-            console.log('Using cached historical data');
-            updateMapWithFilteredFeatures(historicalDataCache[cacheKey]);
-        } else {
-            console.log('Fetching new historical data');
+  try {
+      isLoadingHistoricalData = true;
+      disableFilterButtons();
+      showFeedback('Loading historical data...', 'info');
 
-            const response = await fetch(
-                `/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}` +
-                `&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}` +
-                `&bounds=${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
-            );
+      const wacoBoundary = wacoBoundarySelect.value;
+      const bounds = map.getBounds();
+      const cacheKey = generateCacheKey(bounds);
 
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
+      if (historicalDataCache[cacheKey]) {
+          console.log('Using cached historical data');
+          updateMapWithFilteredFeatures(historicalDataCache[cacheKey]);
+      } else {
+          console.log('Fetching new historical data');
 
-            const compressedData = await response.arrayBuffer();
-            const decompressedData = pako.inflate(new Uint8Array(compressedData), {
-                to: 'string'
-            });
-            const data = JSON.parse(decompressedData);
+          const response = await fetch(
+              `/historical_data?startDate=${startDateInput.value}&endDate=${endDateInput.value}` +
+              `&filterWaco=${filterWacoCheckbox.checked}&wacoBoundary=${wacoBoundary}` +
+              `&bounds=${bounds.getWest()},${bounds.getSouth()},${bounds.getEast()},${bounds.getNorth()}`
+          );
 
-            if (!data || !data.features || data.features.length === 0) {
-                showFeedback('No historical data available for the selected period and area.', 'warning');
-                return;
-            }
+          if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+          }
 
-            cacheHistoricalData(cacheKey, data);
+          const compressedData = await response.arrayBuffer();
+          const decompressedData = pako.inflate(new Uint8Array(compressedData), { to: 'string' });
+          const data = JSON.parse(decompressedData);
 
-            worker.postMessage({
-                action: 'filterFeatures',
-                data: {
-                    features: data.features,
-                    bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
-                }
-            });
-        }
-    } catch (error) {
-        console.error('Error displaying historical data:', error);
-        showFeedback(`Error loading historical data: ${error.message}. Please try again.`, 'error');
-    }
+          if (!data || !data.features || data.features.length === 0) {
+              showFeedback('No historical data available for the selected period and area.', 'warning');
+              return;
+          }
+
+          cacheHistoricalData(cacheKey, data);
+
+          worker.postMessage({
+              action: 'filterFeatures',
+              data: {
+                  features: data.features,
+                  bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()]
+              }
+          });
+      }
+  } catch (error) {
+      console.error('Error displaying historical data:', error);
+      showFeedback(`Error loading historical data: ${error.message}. Please try again.`, 'error');
+  } finally {
+      isLoadingHistoricalData = false;
+      enableFilterButtons();
+  }
 }
+
 // Function to generate a cache key based on current filters and map bounds
 function generateCacheKey(bounds) {
     return `${CACHE_VERSION}:${startDateInput.value}:${endDateInput.value}:` +
@@ -593,25 +603,30 @@ function initializeDataPolling() {
 
 // Function to filter routes by a specific period
 function filterRoutesBy(period) {
-    const now = new Date();
-    let startDate;
+  if (isLoadingHistoricalData) {
+      showFeedback('Already loading historical data. Please wait.', 'info');
+      return;
+  }
 
-    const periodMap = {
-        today: 0,
-        yesterday: -1,
-        lastWeek: -7,
-        lastMonth: -30,
-        lastYear: -365,
-        allTime: new Date(2020, 0, 1) // Data starts from 2020
-    };
+  const now = new Date();
+  let startDate;
 
-    startDate = periodMap[period] instanceof Date ?
-        periodMap[period] :
-        new Date(now.getFullYear(), now.getMonth(), now.getDate() + periodMap[period]);
+  const periodMap = {
+      today: 0,
+      yesterday: -1,
+      lastWeek: -7,
+      lastMonth: -30,
+      lastYear: -365,
+      allTime: new Date(2020, 0, 1) // Data starts from 2020
+  };
 
-    startDateInput.value = startDate.toISOString().slice(0, 10);
-    endDateInput.value = now.toISOString().slice(0, 10);
-    displayHistoricalData(); // Update the map with the new date range
+  startDate = periodMap[period] instanceof Date ?
+      periodMap[period] :
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() + periodMap[period]);
+
+  startDateInput.value = startDate.toISOString().slice(0, 10);
+  endDateInput.value = now.toISOString().slice(0, 10);
+  displayHistoricalData(); // Update the map with the new date range
 }
 
 // Function to export data to GPX
@@ -665,24 +680,21 @@ function initializeWebWorker() {
 }
 
 function updateMapWithFilteredFeatures(features) {
-    if (historicalDataLayer) {
-        map.removeLayer(historicalDataLayer);
-    }
+  if (historicalDataLayer) {
+      map.removeLayer(historicalDataLayer);
+  }
 
-    historicalDataLayer = L.geoJSON(features, {
-        style: {
-            color: 'blue',
-            weight: 2,
-            opacity: 0.25
-        },
-        onEachFeature: addRoutePopup
-    }).addTo(map);
+  historicalDataLayer = L.geoJSON(features, {
+      style: { color: 'blue', weight: 2, opacity: 0.25 },
+      onEachFeature: addRoutePopup
+  }).addTo(map);
 
-    // Update total historical distance
-    const totalDistance = calculateTotalDistance(features);
-    document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
+  // Update total historical distance
+  const totalDistance = calculateTotalDistance(features);
+  document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
 
-    showFeedback(`Displayed ${features.length} historical features`, 'success');
+  showFeedback(`Displayed ${features.length} historical features`, 'success');
+  enableFilterButtons(); // Re-enable buttons here
 }
 
 // Function to check historical data status
