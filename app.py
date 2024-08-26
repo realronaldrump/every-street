@@ -31,15 +31,17 @@ log_file = os.path.join(log_directory, "app.log")
 file_handler = RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5)
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 
-logging.getLogger().setLevel(logging.DEBUG)  # Changed to DEBUG for more detailed logs
-logging.getLogger().addHandler(file_handler)
+# Get the root logger
+logger = logging.getLogger() 
+logger.setLevel(logging.DEBUG)  # Changed to DEBUG for more detailed logs
+logger.addHandler(file_handler)
 
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)  # Changed to DEBUG for more detailed logs
 console_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-logging.getLogger().addHandler(console_handler)
+logger.addHandler(console_handler)
 
-logging.info("Logging initialized")
+logger.info("Logging initialized") # Use the logger instance
 
 # Load environment variables
 load_dotenv()
@@ -70,7 +72,9 @@ app.is_processing = False
 geojson_handler = GeoJSONHandler()
 geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 bouncie_api = BouncieAPI()
-gpx_exporter = GPXExporter(geojson_handler)
+
+# Modify GPXExporter to accept the existing GeoJSONHandler instance
+gpx_exporter = GPXExporter(geojson_handler) 
 
 # Initialize WacoStreetsAnalyzer
 waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
@@ -414,7 +418,8 @@ async def startup():
         logging.info("Live route data loaded.")
         
         logging.info("Initializing historical data...")
-        await geojson_handler.initialize_data()
+        # Use the existing geojson_handler instance
+        await geojson_handler.initialize_data() 
         logging.info("Historical data initialized.")
         
         app.task_manager.add_task(poll_bouncie_api())

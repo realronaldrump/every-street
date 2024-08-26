@@ -17,6 +17,8 @@ from waco_streets_analyzer import WacoStreetsAnalyzer
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
 class GeoJSONHandler:
     def __init__(self):
         self.bouncie_api = BouncieAPI()
@@ -35,7 +37,7 @@ class GeoJSONHandler:
                 logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
         except Exception as e:
             logging.error(f"Error updating progress: {str(e)}", exc_info=True)
-        
+
     def _flatten_coordinates(self, coords):
         """Helper function to flatten a nested list of coordinates."""
         flat_coords = []
@@ -64,7 +66,7 @@ class GeoJSONHandler:
         try:
             gdf = gpd.read_file(f"static/{boundary_type}.geojson")
             if not gdf.empty:
-                return gdf.geometry.unary_union  # This will return a single geometry, even if it's a MultiPolygon
+                return gdf.geometry.unary_union  # Returns a single geometry
             else:
                 logging.error(f"No features found in {boundary_type}.geojson")
                 return None
@@ -76,7 +78,7 @@ class GeoJSONHandler:
             return None
 
     def filter_streets_by_boundary(self, streets_geojson, waco_limits):
-        """Filters street features that are within the Waco boundary."""
+        """Filters street features within the Waco boundary."""
         filtered_features = []
         for feature in streets_geojson['features']:
             street_geometry = shape(feature['geometry'])
@@ -85,6 +87,7 @@ class GeoJSONHandler:
         return {"type": "FeatureCollection", "features": filtered_features}
 
     def clip_route_to_boundary(self, feature, waco_limits):
+        """Clips a route to the Waco boundary."""
         try:
             if isinstance(waco_limits, (Polygon, MultiPolygon)):
                 waco_polygon = waco_limits
@@ -124,6 +127,7 @@ class GeoJSONHandler:
             return None
 
     async def load_historical_data(self):
+        """Loads historical data from monthly files."""
         if self.historical_geojson_features:
             logging.info("Historical data already loaded.")
             return
@@ -152,18 +156,22 @@ class GeoJSONHandler:
                     bbox = self._calculate_bounding_box(feature)
                     self.idx.insert(i, bbox)
 
+                from app import app
+                app.historical_data_loaded = True  # Signal that data is loaded
+
         except Exception as e:
             logging.error(f"Unexpected error loading historical data: {str(e)}", exc_info=True)
             raise Exception(f"Error loading historical data: {str(e)}")
-        
+
     async def update_historical_data(self, fetch_all=False):
+        """Updates historical data by fetching new trips from the Bouncie API."""
         try:
             logging.info("Starting update_historical_data")
             await self.bouncie_api.client.get_access_token()
             logging.info("Access token obtained")
 
             if fetch_all:
-                latest_date = datetime(2024, 8, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc) 
             elif self.historical_geojson_features:
                 latest_timestamp = max(
                     feature["properties"]["timestamp"]
@@ -172,7 +180,7 @@ class GeoJSONHandler:
                 )
                 latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
             else:
-                latest_date = datetime(2024, 8, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc) 
 
             today = datetime.now(tz=timezone.utc)
             all_trips = []
@@ -212,9 +220,11 @@ class GeoJSONHandler:
             raise
 
     def get_progress(self):
+        """Calculates and returns the overall progress."""
         return self.waco_analyzer.calculate_progress() if self.waco_analyzer else 0
 
     def get_progress_geojson(self, waco_boundary='city_limits'):
+        """Generates and returns GeoJSON for visualizing progress."""
         return self.waco_analyzer.get_progress_geojson(waco_boundary) if self.waco_analyzer else None
 
     async def get_recent_historical_data(self):
@@ -233,6 +243,7 @@ class GeoJSONHandler:
             return []  # Return an empty list if there's an error
 
     async def _update_monthly_files(self, new_features):
+        """Updates the monthly GeoJSON files with new features."""
         for feature in new_features:
             timestamp = feature["properties"]["timestamp"]
             date = datetime.fromtimestamp(timestamp, tz=timezone.utc)
@@ -252,12 +263,11 @@ class GeoJSONHandler:
         logging.info(f"Updated monthly files with {len(new_features)} new features")
 
     def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, features=None, bounds=None):
+        """Filters GeoJSON features based on date range, Waco boundary, and optional bounding box."""
         start_datetime = get_start_of_day(parse_date(start_date))
         end_datetime = get_end_of_day(parse_date(end_date))
 
         logging.info(f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}")
-        logging.info(f"Original start_date: {start_date}, end_date: {end_date}")
-        logging.info(f"Parsed start_datetime: {start_datetime}, end_datetime: {end_datetime}")
         
         filtered_features = []
         
@@ -294,6 +304,7 @@ class GeoJSONHandler:
         return filtered_features
 
     def get_feature_timestamps(self, feature):
+        """Gets a list of timestamps from a GeoJSON feature's coordinates."""
         coordinates = feature["geometry"]["coordinates"]
         timestamps = []
         for coord in coordinates:
@@ -308,6 +319,7 @@ class GeoJSONHandler:
         return timestamps
 
     def create_geojson_features_from_trips(self, data):
+        """Creates GeoJSON features from Bouncie API trip data."""
         features = []
 
         for trip in data:
@@ -334,7 +346,7 @@ class GeoJSONHandler:
         return features
 
     async def update_progress(self):
-        """Updates progress based on recent historical data."""
+        """Updates the progress of the WacoStreetsAnalyzer based on recent historical data."""
         try:
             recent_data = await self.get_recent_historical_data()
             
@@ -350,6 +362,7 @@ class GeoJSONHandler:
             logging.error(f"Error updating progress: {str(e)}", exc_info=True)
 
     async def initialize_data(self):
+        """Initializes historical data and updates progress."""
         try:
             logging.info("Starting to load historical data...")
             await self.load_historical_data()
@@ -362,6 +375,7 @@ class GeoJSONHandler:
             raise
 
     def get_waco_streets(self, waco_boundary, streets_filter='all'):
+        """Gets GeoJSON data for Waco streets, filtered by boundary and traveled status."""
         waco_streets = gpd.read_file('static/Waco-Streets.geojson')
         waco_limits = self.load_waco_boundary(waco_boundary)
         
