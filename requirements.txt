@@ -12,3 +12,4 @@ hypercorn
 quart_cors
 geopandas
 asyncio
+tqdm
