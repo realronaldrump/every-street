@@ -6,7 +6,6 @@ lxml
 eventlet
 rtree
 python-dotenv
-redis
 quart
 hypercorn
 quart_cors
@@ -15,3 +14,4 @@ asyncio
 tqdm
 numpy
 aiofiles
+redis
