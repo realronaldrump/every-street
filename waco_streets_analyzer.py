@@ -1,9 +1,11 @@
 import logging
 import geopandas as gpd
+import numpy as np
 from shapely.geometry import LineString, Point, box
-from shapely.ops import nearest_points
-from tqdm import tqdm  # For progress bar
-from rtree import index
+from shapely.strtree import STRtree
+from tqdm import tqdm
+import multiprocessing
+from multiprocessing import Manager, Pool
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -12,21 +14,32 @@ class WacoStreetsAnalyzer:
         logging.info("Initializing WacoStreetsAnalyzer...")
         self.streets_gdf = gpd.read_file(waco_streets_file)
         self.snap_distance = snap_distance
-        self.traveled_segments = set()
+        self._manager = None
+        self._traveled_segments = None
 
         # Process streets into segments
         self._process_streets_into_segments()
 
-        # Create spatial index for segments
-        self.segments_index = index.Index()
-        for idx, segment in self.segments_gdf.iterrows():
-            self.segments_index.insert(idx, segment.geometry.bounds)
+        # Create spatial index using STRtree
+        self.streets_tree = STRtree(self.segments_gdf.geometry)
 
         logging.info(f"Processed {len(self.segments_gdf)} segments from {len(self.streets_gdf)} streets.")
 
         # Calculate the bounding box of Waco streets
         self.waco_bbox = self.streets_gdf.total_bounds
         self.waco_box = box(*self.waco_bbox)
+
+    @property
+    def manager(self):
+        if self._manager is None:
+            self._manager = Manager()
+        return self._manager
+
+    @property
+    def traveled_segments(self):
+        if self._traveled_segments is None:
+            self._traveled_segments = self.manager.set()
+        return self._traveled_segments
 
     def _process_streets_into_segments(self):
         segments = []
@@ -43,48 +56,41 @@ class WacoStreetsAnalyzer:
         self.segments_gdf = gpd.GeoDataFrame(segments, crs=self.streets_gdf.crs)
 
     def _snap_point_to_segment(self, point):
-        """Snaps a point to the nearest segment within snap_distance."""
+        """Snaps a point to the nearest segment within snap_distance using STRtree."""
         if not self.waco_box.contains(point):
             return None
 
-        # Use the spatial index to efficiently find nearby segments
-        possible_matches_index = list(self.segments_index.intersection(point.buffer(self.snap_distance).bounds))
-        if not possible_matches_index:
+        nearby_streets = self.streets_tree.query(point.buffer(self.snap_distance))
+        if len(nearby_streets) == 0:
             return None
 
-        possible_matches = self.segments_gdf.iloc[possible_matches_index]
-        nearest_segment = nearest_points(point, possible_matches.unary_union)[1]
-        return nearest_segment
+        distances = np.array([street.distance(point) for street in nearby_streets])
+        nearest_index = np.argmin(distances)
+        return nearby_streets[nearest_index]
+
+    def _process_route(self, route):
+        """Process a single route and return traveled segments."""
+        traveled_segments = set()
+        if isinstance(route, dict) and 'geometry' in route and 'coordinates' in route['geometry']:
+            for coord in route['geometry']['coordinates']:
+                point = Point(coord[0], coord[1])
+                if not self.waco_box.contains(point):
+                    continue
+                snapped_segment = self._snap_point_to_segment(point)
+                if snapped_segment is not None:
+                    traveled_segments.add(self.segments_gdf.index[self.segments_gdf.geometry == snapped_segment][0])
+        return traveled_segments
 
     def update_progress(self, new_routes, progress_callback=None):
-        """Updates progress by snapping route points to segments."""
+        """Updates progress by snapping route points to segments using multiprocessing."""
         logging.info(f"Updating progress with {len(new_routes)} new routes...")
 
-        total_coords = sum(len(route['geometry']['coordinates'])
-                          for route in new_routes
-                          if isinstance(route, dict) and 'geometry' in route and 'coordinates' in route['geometry'])
+        with Pool() as pool:
+            results = list(tqdm(pool.imap(self._process_route, new_routes), 
+                                total=len(new_routes), desc="Processing Routes"))
 
-        processed_coords = 0
-        for route in tqdm(new_routes, desc="Processing Routes", unit="route"):  # Progress bar for routes
-            if isinstance(route, dict) and 'geometry' in route and 'coordinates' in route['geometry']:
-                for coord in tqdm(route['geometry']['coordinates'], desc="Snapping Points", unit="point",
-                                 leave=False):  # Progress bar for points within a route
-                    point = Point(coord[0], coord[1])
-                    if not self.waco_box.contains(point):
-                        continue
-                    snapped_point = self._snap_point_to_segment(point)
-                    if snapped_point:
-                        # Correctly use snapped_point.bounds for intersection
-                        possible_matches_index = list(self.segments_index.intersection(snapped_point.bounds))
-                        if possible_matches_index:
-                            for idx in possible_matches_index:
-                                segment = self.segments_gdf.iloc[idx]
-                                if segment.geometry.distance(snapped_point) < 1e-8:
-                                    self.traveled_segments.add(segment['segment_id'])
-                                    break
-                    processed_coords += 1
-                    if progress_callback:
-                        progress_callback(processed_coords, total_coords)
+        for traveled_segments in results:
+            self.traveled_segments.update(traveled_segments)
 
         logging.info("Progress update complete.")
 
@@ -117,9 +123,12 @@ class WacoStreetsAnalyzer:
                     "segment_id": segment.segment_id,
                     "street_id": segment.street_id,
                     "name": segment.name,
-                    "traveled": segment.segment_id in self.traveled_segments
+                    "traveled": segment.Index in self.traveled_segments
                 }
             }
             features.append(feature)
         logging.info("Progress GeoJSON generated.")
         return {"type": "FeatureCollection", "features": features}
+
+if __name__ == "__main__":
+    multiprocessing.freeze_support()

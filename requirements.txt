@@ -13,3 +13,5 @@ quart_cors
 geopandas
 asyncio
 tqdm
+numpy
+aiofiles

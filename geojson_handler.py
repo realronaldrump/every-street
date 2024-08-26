@@ -13,6 +13,9 @@ import aiofiles
 from bouncie_api import BouncieAPI
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
 from waco_streets_analyzer import WacoStreetsAnalyzer
+import aiofiles
+from functools import partial
+from multiprocessing import Manager
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
@@ -23,8 +26,14 @@ class GeoJSONHandler:
         self.fetched_trip_timestamps = set()
         self.idx = index.Index()
         self.monthly_data = defaultdict(list)
-        self.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
+        self._waco_analyzer = None
 
+    @property
+    def waco_analyzer(self):
+        if self._waco_analyzer is None:
+            self._waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
+        return self._waco_analyzer
+    
     async def update_all_progress(self):
         try:
             if self.waco_analyzer:
@@ -127,13 +136,11 @@ class GeoJSONHandler:
             monthly_files = [f for f in os.listdir('static') if f.startswith('historical_data_') and f.endswith('.geojson')]
             
             for file in monthly_files:
-                logging.debug(f"Processing file: {file}")
                 async with aiofiles.open(f"static/{file}", "r") as f:
                     data = json.loads(await f.read())
                     month_features = data.get("features", [])
-                    self.historical_geojson_features.extend(month_features)
-                    
                     month_year = file.split('_')[2].split('.')[0]
+                    self.historical_geojson_features.extend(month_features)
                     self.monthly_data[month_year] = month_features
 
             logging.info(f"Loaded {len(self.historical_geojson_features)} features from {len(monthly_files)} monthly files")
@@ -192,7 +199,7 @@ class GeoJSONHandler:
                     current_date += timedelta(days=1)
 
             logging.info(f"Fetched {len(all_trips)} trips")
-            new_features = self.create_geojson_features_from_trips(all_trips)
+            new_features = await self._process_trips_in_batches(all_trips)
             logging.info(f"Created {len(new_features)} new features from trips")
 
             if new_features:
@@ -206,7 +213,14 @@ class GeoJSONHandler:
         except Exception as e:
             logging.error(f"An error occurred during historical data update: {e}", exc_info=True)
             raise
-
+    async def _process_trips_in_batches(self, trips, batch_size=1000):
+        new_features = []
+        for i in range(0, len(trips), batch_size):
+            batch = trips[i:i+batch_size]
+            batch_features = await asyncio.to_thread(self.create_geojson_features_from_trips, batch)
+            new_features.extend(batch_features)
+            await asyncio.sleep(0)  # Allow other tasks to run
+        return new_features
     def get_progress(self):
         return self.waco_analyzer.calculate_progress() if self.waco_analyzer else 0
 
@@ -326,21 +340,24 @@ class GeoJSONHandler:
         logging.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
 
-    async def update_progress(self):
+    async def update_all_progress(self):
         try:
-            recent_data = await self.get_recent_historical_data()
-            
-            def progress_callback(current, total):
-                logging.info(f"Progress update: {current}/{total} routes processed")
-            
             if self.waco_analyzer:
-                await asyncio.to_thread(self.waco_analyzer.update_progress, recent_data, progress_callback)
+                # Create a callback function for progress updates
+                def progress_callback(processed, total):
+                    progress = (processed / total) * 100
+                    logging.info(f"Progress: {progress:.2f}% ({processed}/{total})")
+
+                await asyncio.to_thread(
+                    self.waco_analyzer.update_progress, 
+                    self.historical_geojson_features,
+                    progress_callback
+                )
                 logging.info("Progress updated successfully")
             else:
                 logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
         except Exception as e:
             logging.error(f"Error updating progress: {str(e)}", exc_info=True)
-
     async def initialize_data(self):
         try:
             logging.info("Starting to load historical data...")
