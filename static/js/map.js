@@ -7,7 +7,6 @@ let isPlaying = false;
 let currentCoordIndex = 0;
 let drawnItems;
 let selectedWacoBoundary = 'less_goofy';
-let worker;
 let historicalDataLoaded = false;
 let historicalDataLoading = false;
 let isProcessing = false;
@@ -568,15 +567,30 @@ async function displayHistoricalData() {
             return;
         }
 
-        // Send data to web worker for filtering (Assuming worker is initialized)
-        worker.postMessage({
-            action: 'filterFeatures',
-            data: {
-                features: data.features,
-                bounds: map.getBounds().toBBoxString().split(',').map(Number)
+        // Filter features based on bounding box
+        const filteredFeatures = data.features.filter(feature => {
+            const coordinates = feature.geometry.coordinates;
+            const bounds = map.getBounds().toBBoxString().split(',').map(Number);
+            const [minLon, minLat, maxLon, maxLat] = bounds;
+
+            if (feature.geometry.type === 'LineString') {
+                return coordinates.some(coord => {
+                    const [lon, lat] = coord;
+                    return lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat;
+                });
+            } else if (feature.geometry.type === 'MultiLineString') {
+                return coordinates.some(segment =>
+                    segment.some(coord => {
+                        const [lon, lat] = coord;
+                        return lon >= minLon && lon <= maxLon && lat >= minLat && lat <= maxLat;
+                    })
+                );
             }
+
+            return false; // If the geometry type is not supported
         });
 
+        updateMapWithHistoricalData({ type: 'FeatureCollection', features: filteredFeatures });
     } catch (error) {
         console.error('Error displaying historical data:', error);
         showFeedback(`Error loading historical data: ${error.message}. Please try again.`, 'error');
@@ -868,15 +882,9 @@ async function exportToGPX() {
 }
 
 function initializeWebWorker() {
-    worker = new Worker('/static/js/worker.js');
-    worker.onmessage = function(e) {
-        const { action, data } = e.data;
-        if (action === 'filterFeaturesResult') {
-            // Update the map with the filtered data from the worker
-            updateMapWithHistoricalData({ type: 'FeatureCollection', features: data }); 
-        }
-    };
+    // Removed web worker functionality
 }
+
 function updateMapWithHistoricalData(data) {
     if (historicalDataLayer) {
         map.removeLayer(historicalDataLayer);
