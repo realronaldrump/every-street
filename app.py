@@ -15,24 +15,17 @@ from bouncie_api import BouncieAPI
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
 from geopy.geocoders import Nominatim
-import redis
-import gzip
-from typing import List
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
-from shapely.geometry import shape, box, LineString, Polygon
 from waco_streets_analyzer import WacoStreetsAnalyzer
 
 # Logging Setup
-log_directory = "logs"
-if not os.path.exists(log_directory):
-    os.makedirs(log_directory)
-
-log_file = os.path.join(log_directory, "app.log")
+LOG_DIRECTORY = "logs"
+os.makedirs(LOG_DIRECTORY, exist_ok=True)
+log_file = os.path.join(LOG_DIRECTORY, "app.log")
 file_handler = RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5)
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 
-logging.getLogger().setLevel(logging.DEBUG)
-logging.getLogger().addHandler(file_handler)
+logging.basicConfig(level=logging.DEBUG, handlers=[file_handler])
 
 console_handler = logging.StreamHandler()
 console_handler.setLevel(logging.DEBUG)
@@ -69,8 +62,6 @@ geojson_handler = GeoJSONHandler()
 geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 bouncie_api = BouncieAPI()
 gpx_exporter = GPXExporter(geojson_handler)
-
-# Initialize WacoStreetsAnalyzer
 waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
 
 # Asynchronous Locks
@@ -99,7 +90,7 @@ class TaskManager:
 
 app.task_manager = TaskManager()
 
-# Load live route data from file
+# Helper functions
 def load_live_route_data():
     try:
         with open(LIVE_ROUTE_DATA_FILE, "r") as f:
@@ -113,13 +104,11 @@ def load_live_route_data():
         logging.error(f"Error decoding JSON from {LIVE_ROUTE_DATA_FILE}. File may be corrupted.")
         return {"type": "FeatureCollection", "features": []}
 
-# Save live route data to file
 def save_live_route_data(data):
     with open(LIVE_ROUTE_DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
-# ------------------------------ ROUTES ------------------------------ #
-
+# Routes
 @app.route('/progress')
 async def get_progress():
     progress = geojson_handler.waco_analyzer.calculate_progress()
@@ -141,7 +130,6 @@ async def get_untraveled_streets():
     progress_geojson = geojson_handler.get_progress_geojson(waco_boundary)
     return jsonify(progress_geojson)
 
-# Bouncie API Routes
 @app.route("/latest_bouncie_data")
 async def get_latest_bouncie_data():
     async with live_route_lock:
@@ -155,7 +143,6 @@ async def live_route():
             return jsonify({"type": "FeatureCollection", "features": []})
         return jsonify(live_route_data)
 
-# Data Routes
 @app.route("/historical_data_status")
 async def historical_data_status():
     async with historical_data_lock:
@@ -335,7 +322,6 @@ async def get_waco_streets():
     streets_geojson = geojson_handler.get_waco_streets(waco_boundary, streets_filter)
     return jsonify(streets_geojson)
 
-# Authentication Routes
 @app.route("/login", methods=["GET", "POST"])
 async def login():
     if request.method == "POST":
@@ -353,7 +339,6 @@ async def logout():
     session.pop("authenticated", None)
     return redirect(url_for("login"))
 
-# Main Route
 @app.route("/")
 @login_required
 async def index():
@@ -361,8 +346,7 @@ async def index():
     async with historical_data_lock:
         return await render_template("index.html", today=today, historical_data_loaded=app.historical_data_loaded)
 
-# ------------------------------ ASYNC TASKS ------------------------------ #
-
+# Async Tasks
 async def poll_bouncie_api():
     while True:
         try:
@@ -408,9 +392,7 @@ async def load_historical_data_background():
     finally:
         app.historical_data_loading = False
 
-
-# ------------------------------ APP LIFECYCLE EVENTS ------------------------------ #
-
+# App Lifecycle Events
 @app.before_serving
 async def startup():
     app.historical_data_loaded = False
@@ -438,15 +420,14 @@ async def startup():
 async def shutdown():
     await app.task_manager.cancel_all()
 
-# ------------------------------ RUN APP ------------------------------ #
-
+# Error Handler
 def handle_exception(loop, context):
-    # context["message"] will always be there; but context["exception"] may not
     msg = context.get("exception", context["message"])
     logging.error(f"Caught exception: {msg}")
     logging.info("Shutting down...")
     asyncio.create_task(shutdown())
 
+# Main
 if __name__ == "__main__":
     async def run_app():
         logging.info("Setting up Hypercorn configuration...")

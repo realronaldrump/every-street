@@ -36,7 +36,6 @@ class GeoJSONHandler:
             logging.error(f"Error updating progress: {str(e)}", exc_info=True)
         
     def _flatten_coordinates(self, coords):
-        """Helper function to flatten a nested list of coordinates."""
         flat_coords = []
         for item in coords:
             if isinstance(item, list):
@@ -49,9 +48,7 @@ class GeoJSONHandler:
         return flat_coords
 
     def _calculate_bounding_box(self, feature):
-        """Helper function to calculate the bounding box of a feature."""
-        coords = feature["geometry"]["coordinates"]
-        coords = self._flatten_coordinates(coords)
+        coords = self._flatten_coordinates(feature["geometry"]["coordinates"])
         min_lon, min_lat = max_lon, max_lat = coords[0]
         for lon, lat in coords:
             min_lon, max_lon = min(min_lon, lon), max(max_lon, lon)
@@ -59,11 +56,10 @@ class GeoJSONHandler:
         return (min_lon, min_lat, max_lon, max_lat)
 
     def load_waco_boundary(self, boundary_type):
-        """Loads the specified Waco boundary from a GeoJSON file."""
         try:
             gdf = gpd.read_file(f"static/{boundary_type}.geojson")
             if not gdf.empty:
-                return gdf.geometry.unary_union  # This will return a single geometry, even if it's a MultiPolygon
+                return gdf.geometry.unary_union
             else:
                 logging.error(f"No features found in {boundary_type}.geojson")
                 return None
@@ -75,7 +71,6 @@ class GeoJSONHandler:
             return None
 
     def filter_streets_by_boundary(self, streets_geojson, waco_limits):
-        """Filters street features that are within the Waco boundary."""
         filtered_features = []
         for feature in streets_geojson['features']:
             street_geometry = shape(feature['geometry'])
@@ -133,8 +128,8 @@ class GeoJSONHandler:
             
             for file in monthly_files:
                 logging.debug(f"Processing file: {file}")
-                with open(f"static/{file}", "r") as f:
-                    data = json.load(f)
+                async with aiofiles.open(f"static/{file}", "r") as f:
+                    data = json.loads(await f.read())
                     month_features = data.get("features", [])
                     self.historical_geojson_features.extend(month_features)
                     
@@ -219,7 +214,6 @@ class GeoJSONHandler:
         return self.waco_analyzer.get_progress_geojson(waco_boundary) if self.waco_analyzer else None
 
     async def get_recent_historical_data(self):
-        """Gets historical data from the last 24 hours."""
         try:
             yesterday = days_ago(1)
             filtered_features = self.filter_geojson_features(
@@ -231,7 +225,7 @@ class GeoJSONHandler:
             return filtered_features
         except Exception as e:
             logging.error(f"Error in get_recent_historical_data: {str(e)}", exc_info=True)
-            return []  # Return an empty list if there's an error
+            return []
 
     async def _update_monthly_files(self, new_features):
         for feature in new_features:
@@ -257,8 +251,6 @@ class GeoJSONHandler:
         end_datetime = get_end_of_day(parse_date(end_date))
 
         logging.info(f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}")
-        logging.info(f"Original start_date: {start_date}, end_date: {end_date}")
-        logging.info(f"Parsed start_datetime: {start_datetime}, end_datetime: {end_datetime}")
         
         filtered_features = []
         
@@ -335,7 +327,6 @@ class GeoJSONHandler:
         return features
 
     async def update_progress(self):
-        """Updates progress based on recent historical data."""
         try:
             recent_data = await self.get_recent_historical_data()
             
@@ -384,21 +375,19 @@ class GeoJSONHandler:
         return json.loads(waco_streets.to_json())
 
     def calculate_total_distance(self, features):
-        total_distance = 0
-        for feature in features:
-            if feature['geometry']['type'] == 'LineString':
-                coords = feature['geometry']['coordinates']
-                for i in range(len(coords) - 1):
-                    point1 = coords[i]
-                    point2 = coords[i + 1]
-                    total_distance += self.haversine(point1[1], point1[0], point2[1], point2[0])
-            elif feature['geometry']['type'] == 'MultiLineString':
-                for line in feature['geometry']['coordinates']:
-                    for i in range(len(line) - 1):
-                        point1 = line[i]
-                        point2 = line[i + 1]
-                        total_distance += self.haversine(point1[1], point1[0], point2[1], point2[0])
-        return total_distance
+        return sum(self._calculate_feature_distance(feature) for feature in features)
+
+    def _calculate_feature_distance(self, feature):
+        if feature['geometry']['type'] == 'LineString':
+            return self._calculate_linestring_distance(feature['geometry']['coordinates'])
+        elif feature['geometry']['type'] == 'MultiLineString':
+            return sum(self._calculate_linestring_distance(line) for line in feature['geometry']['coordinates'])
+        return 0
+
+    def _calculate_linestring_distance(self, coordinates):
+        return sum(self.haversine(coordinates[i][1], coordinates[i][0], 
+                                  coordinates[i+1][1], coordinates[i+1][0]) 
+                   for i in range(len(coordinates) - 1))
 
     def haversine(self, lat1, lon1, lat2, lon2):
         from math import radians, sin, cos, sqrt, atan2

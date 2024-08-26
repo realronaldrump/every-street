@@ -1,7 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
-
+from datetime import datetime, timezone
 from geopy.distance import geodesic
 from bounciepy import AsyncRESTAPIClient
 from geopy.geocoders import Nominatim
@@ -18,7 +17,6 @@ VEHICLE_ID = os.getenv("VEHICLE_ID")
 DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 
 ENABLE_GEOCODING = True
-
 
 class BouncieAPI:
     def __init__(self):
@@ -52,24 +50,11 @@ class BouncieAPI:
                 else "N/A"
             )
 
-            try:
-                timestamp_iso = stats["lastUpdated"]
-                timestamp_dt = datetime.fromisoformat(
-                    timestamp_iso.replace("Z", "+00:00")
-                )
-                timestamp_unix = int(timestamp_dt.timestamp())
-            except Exception as e:
-                logging.error(f"Error converting timestamp: {e}")
+            timestamp_unix = self._parse_timestamp(stats["lastUpdated"])
+            if timestamp_unix is None:
                 return None
 
-            bouncie_status = stats["battery"]["status"]
-            battery_state = (
-                "full"
-                if bouncie_status == "normal"
-                else "unplugged"
-                if bouncie_status == "low"
-                else "unknown"
-            )
+            battery_state = self._get_battery_state(stats["battery"]["status"])
 
             logging.info(
                 f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}"
@@ -94,20 +79,7 @@ class BouncieAPI:
                     None, lambda: self.geolocator.reverse((lat, lon), addressdetails=True)
                 )
                 if location:
-                    address = location.raw["address"]
-                    place = address.get("place", "")
-                    building = address.get("building", "")
-                    house_number = address.get("house_number", "")
-                    road = address.get("road", "")
-                    city = address.get("city", "")
-                    state = address.get("state", "")
-                    postcode = address.get("postcode", "")
-
-                    formatted_address = f"{place}<br>" if place else ""
-                    formatted_address += f"{building}<br>" if building else ""
-                    formatted_address += f"{house_number} {road}<br>{city}, {state} {postcode}"
-
-                    return formatted_address
+                    return self._format_address(location.raw["address"])
                 else:
                     return "N/A"
             except Exception as e:
@@ -132,12 +104,50 @@ class BouncieAPI:
                 return None
 
     async def get_trip_metrics(self):
-        time_since_update = datetime.now(timezone.utc) - self.live_trip_data[
-            "last_updated"
-        ]
+        time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
         if time_since_update.total_seconds() > 45:
             self.live_trip_data["data"] = []
 
+        total_distance, total_time, max_speed, start_time, end_time = self._calculate_trip_metrics()
+
+        formatted_metrics = {
+            "total_distance": round(total_distance, 2),
+            "total_time": self._format_time(total_time),
+            "max_speed": max_speed,
+            "start_time": self._format_datetime(start_time),
+            "end_time": self._format_datetime(end_time),
+        }
+
+        logging.info(f"Returning trip metrics: {formatted_metrics}")
+        return formatted_metrics
+
+    def _parse_timestamp(self, timestamp_iso):
+        try:
+            timestamp_dt = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
+            return int(timestamp_dt.timestamp())
+        except Exception as e:
+            logging.error(f"Error converting timestamp: {e}")
+            return None
+
+    def _get_battery_state(self, bouncie_status):
+        return (
+            "full"
+            if bouncie_status == "normal"
+            else "unplugged"
+            if bouncie_status == "low"
+            else "unknown"
+        )
+
+    def _format_address(self, address):
+        components = [
+            address.get("place", ""),
+            address.get("building", ""),
+            f"{address.get('house_number', '')} {address.get('road', '')}",
+            f"{address.get('city', '')}, {address.get('state', '')} {address.get('postcode', '')}"
+        ]
+        return "<br>".join(filter(bool, components))
+
+    def _calculate_trip_metrics(self):
         total_distance = 0
         total_time = 0
         max_speed = 0
@@ -163,25 +173,12 @@ class BouncieAPI:
                 start_time = prev_point["timestamp"]
             end_time = curr_point["timestamp"]
 
-        formatted_metrics = {
-            "total_distance": round(total_distance, 2),
-            "total_time": self._format_time(total_time),
-            "max_speed": max_speed,
-            "start_time": datetime.fromtimestamp(start_time).strftime(
-                "%Y-%m-%d %H:%M:%S"
-            )
-            if start_time
-            else "N/A",
-            "end_time": datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S")
-            if end_time
-            else "N/A",
-        }
-
-        logging.info(f"Returning trip metrics: {formatted_metrics}")
-        return formatted_metrics
+        return total_distance, total_time, max_speed, start_time, end_time
 
     def _format_time(self, seconds):
-        hours = seconds // 3600
-        minutes = (seconds % 3600) // 60
-        seconds = seconds % 60
+        hours, remainder = divmod(seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    def _format_datetime(self, timestamp):
+        return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "N/A"

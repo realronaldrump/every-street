@@ -112,6 +112,14 @@ function checkQueuedTasks() {
     }
 }
 
+function addLayerControls() {
+    const overlayMaps = {
+        "Historical Data": historicalDataLayer,
+        "Waco Streets": wacoStreetsLayer
+    };
+
+    L.control.layers(null, overlayMaps).addTo(map);
+}
 // Function to initialize the map
 function initializeMap() {
     map = L.map('map').setView([31.5493, -97.1117], 13); 
@@ -367,37 +375,6 @@ async function toggleWacoStreets() {
         showFeedback('Waco streets hidden', 'info');
     } else {
         await loadWacoStreets();
-    }
-}
-
-async function loadWacoStreets() {
-    try {
-        const response = await fetch(`/waco_streets?wacoBoundary=${wacoBoundarySelect.value}&filter=${wacoStreetsFilter}`);
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        const data = await response.json();
-
-        wacoStreetsLayer = L.geoJSON(data, {
-            style: function(feature) {
-                return {
-                    color: feature.properties.traveled ? '#00FF00' : '#FF0000', // Green if traveled, Red if not
-                    weight: 2,
-                    opacity: wacoStreetsOpacity
-                };
-            },
-            filter: function(feature) {
-                if (wacoStreetsFilter === 'all') return true;
-                if (wacoStreetsFilter === 'traveled') return feature.properties.traveled;
-                if (wacoStreetsFilter === 'untraveled') return !feature.properties.traveled;
-            },
-            pane: 'wacoStreetsPane'
-        }).addTo(map);
-
-        showFeedback('Waco streets displayed', 'success');
-    } catch (error) {
-        console.error('Error loading Waco streets:', error);
-        showFeedback('Error loading Waco streets', 'error');
     }
 }
 
@@ -1117,11 +1094,11 @@ function setupEventListeners() {
         showFeedback('Filters applied successfully', 'success');
     }, 'Applying filters...'));
 
-    wacoBoundarySelect.addEventListener('change', handleBackgroundTask(async () => {
-        await loadWacoLimits(wacoBoundarySelect.value);  
-        await displayHistoricalData();
-        showFeedback('Filters applied successfully', 'success');
-    }, 'Applying filters...'));
+    // wacoBoundarySelect.addEventListener('change', handleBackgroundTask(async () => {
+    //     await loadWacoLimits(wacoBoundarySelect.value);  
+    //     await displayHistoricalData();
+    //     showFeedback('Filters applied successfully', 'success');
+    // }, 'Applying filters...'));
 
     exportToGPXBtn.addEventListener('click', handleBackgroundTask(exportToGPX, 'Exporting to GPX...'));
     clearDrawnShapesBtn.addEventListener('click', handleBackgroundTask(clearDrawnShapes, 'Clearing drawn shapes...'));
@@ -1129,20 +1106,20 @@ function setupEventListeners() {
     // New event listeners for Waco streets controls
     document.querySelector('.toggle-untraveled-btn').addEventListener('click', toggleWacoStreets);
 
-    document.getElementById('opacity-slider').addEventListener('input', function(e) {
-        wacoStreetsOpacity = parseFloat(e.target.value);
-        if (wacoStreetsLayer) {
-            wacoStreetsLayer.setStyle({ opacity: wacoStreetsOpacity });
-        }
-    });
+    // document.getElementById('opacity-slider').addEventListener('input', function(e) {
+    //     wacoStreetsOpacity = parseFloat(e.target.value);
+    //     if (wacoStreetsLayer) {
+    //         wacoStreetsLayer.setStyle({ opacity: wacoStreetsOpacity });
+    //     }
+    // });
 
-    document.getElementById('streets-select').addEventListener('change', function(e) {
-        wacoStreetsFilter = e.target.value;
-        if (wacoStreetsLayer) {
-            loadWacoStreets();
-        }
-    });
-}
+//     document.getElementById('streets-select').addEventListener('change', function(e) {
+//         wacoStreetsFilter = e.target.value;
+//         if (wacoStreetsLayer) {
+//             loadWacoStreets();
+//         }
+//     });
+ }
 
 function debounce(func, wait) {
     let timeout;
@@ -1193,6 +1170,31 @@ document.addEventListener('DOMContentLoaded', function () {
     } else {
         console.error('One or more DOM elements are missing');
     }
+
+    document.getElementById('showHistoricalData').addEventListener('change', function(e) {
+        if (e.target.checked) {
+            map.addLayer(historicalDataLayer);
+        } else {
+            map.removeLayer(historicalDataLayer);
+        }
+    });
+    
+    document.getElementById('showWacoStreets').addEventListener('change', function(e) {
+        if (e.target.checked) {
+            loadWacoStreets();
+        } else {
+            if (wacoStreetsLayer) {
+                map.removeLayer(wacoStreetsLayer);
+            }
+        }
+    });
+    
+    document.getElementById('wacoStreetsFilter').addEventListener('change', function(e) {
+        wacoStreetsFilter = e.target.value;
+        if (wacoStreetsLayer) {
+            loadWacoStreets();
+        }
+    });
 
     fetch('/processing_status')
         .then(response => response.json())
