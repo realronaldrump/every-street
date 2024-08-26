@@ -31,17 +31,15 @@ log_file = os.path.join(log_directory, "app.log")
 file_handler = RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5)
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 
-# Get the root logger
-logger = logging.getLogger() 
-logger.setLevel(logging.DEBUG)  # Changed to DEBUG for more detailed logs
-logger.addHandler(file_handler)
+logging.getLogger().setLevel(logging.DEBUG)
+logging.getLogger().addHandler(file_handler)
 
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)  # Changed to DEBUG for more detailed logs
+console_handler.setLevel(logging.DEBUG)
 console_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
-logger.addHandler(console_handler)
+logging.getLogger().addHandler(console_handler)
 
-logger.info("Logging initialized") # Use the logger instance
+logging.info("Logging initialized")
 
 # Load environment variables
 load_dotenv()
@@ -55,7 +53,6 @@ def login_required(func):
         return await func(*args, **kwargs)
     return wrapper
 
-
 # Initialize Flask App
 app = Quart(__name__)
 app = cors(app)
@@ -67,14 +64,11 @@ app.historical_data_loaded = False
 app.historical_data_loading = False
 app.is_processing = False
 
-
 # Initialize API Clients and Handlers
 geojson_handler = GeoJSONHandler()
 geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
 bouncie_api = BouncieAPI()
-
-# Modify GPXExporter to accept the existing GeoJSONHandler instance
-gpx_exporter = GPXExporter(geojson_handler) 
+gpx_exporter = GPXExporter(geojson_handler)
 
 # Initialize WacoStreetsAnalyzer
 waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
@@ -310,7 +304,7 @@ async def update_historical_data():
         try:
             app.is_processing = True
             logging.info("Starting historical data update process")
-            await geojson_handler.update_historical_data(fetch_all=True)  # Added fetch_all=True
+            await geojson_handler.update_historical_data(fetch_all=True)
             logging.info("Historical data update process completed")
             return jsonify({"message": "Historical data updated successfully!"}), 200
         except Exception as e:
@@ -403,7 +397,16 @@ async def poll_bouncie_api():
             logging.error(f"An error occurred while fetching live data: {e}")
             await asyncio.sleep(5)
 
-
+async def load_historical_data_background():
+    app.historical_data_loading = True
+    try:
+        await geojson_handler.load_historical_data()
+        app.historical_data_loaded = True
+        logging.info("Historical data loaded successfully")
+    except Exception as e:
+        logging.error(f"Error loading historical data: {str(e)}", exc_info=True)
+    finally:
+        app.historical_data_loading = False
 
 
 # ------------------------------ APP LIFECYCLE EVENTS ------------------------------ #
@@ -412,14 +415,14 @@ async def poll_bouncie_api():
 async def startup():
     app.historical_data_loaded = False
     app.historical_data_loading = False
+    asyncio.create_task(load_historical_data_background())
     logging.info("Starting application initialization...")
     try:
         app.live_route_data = load_live_route_data()
         logging.info("Live route data loaded.")
         
         logging.info("Initializing historical data...")
-        # Use the existing geojson_handler instance
-        await geojson_handler.initialize_data() 
+        await geojson_handler.initialize_data()
         logging.info("Historical data initialized.")
         
         app.task_manager.add_task(poll_bouncie_api())
