@@ -26,6 +26,9 @@ self.addEventListener('message', function (e) {
             return false; // If the geometry type is not supported
         });
 
-        self.postMessage({ action: 'filterFeaturesResult', data: filteredFeatures });
+        self.postMessage({ action: 'filterFeaturesResult', data: {
+            type: 'FeatureCollection',
+            features: filteredFeatures
+        }});
     }
 });

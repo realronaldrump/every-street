@@ -68,6 +68,7 @@ waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
 historical_data_lock = asyncio.Lock()
 processing_lock = asyncio.Lock()
 live_route_lock = asyncio.Lock()
+progress_lock = asyncio.Lock()
 
 # Live Route Data File
 LIVE_ROUTE_DATA_FILE = "live_route_data.geojson"
@@ -116,13 +117,14 @@ async def get_progress():
 
 @app.route("/update_progress", methods=["POST"])
 async def update_progress():
-    try:
-        await geojson_handler.update_progress()
-        progress = geojson_handler.get_progress()
-        return jsonify({"progress": progress}), 200
-    except Exception as e:
-        logging.error(f"Error updating progress: {str(e)}", exc_info=True)
-        return jsonify({"error": f"Error updating progress: {str(e)}"}), 500
+    async with progress_lock:
+        try:
+            await geojson_handler.update_progress()
+            progress = geojson_handler.get_progress()
+            return jsonify({"progress": progress}), 200
+        except Exception as e:
+            logging.error(f"Error updating progress: {str(e)}", exc_info=True)
+            return jsonify({"error": f"Error updating progress: {str(e)}"}), 500
     
 @app.route('/untraveled_streets')
 async def get_untraveled_streets():
@@ -352,7 +354,7 @@ async def poll_bouncie_api():
         try:
             bouncie_data = await bouncie_api.get_latest_bouncie_data()
             if bouncie_data:
-                async with live_route_lock:
+                async with live_route_lock:  # Use lock for live route data
                     app.live_route_data = load_live_route_data()
 
                     if "features" not in app.live_route_data:
