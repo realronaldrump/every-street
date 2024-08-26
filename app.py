@@ -131,11 +131,12 @@ async def get_progress():
 async def update_progress():
     try:
         await geojson_handler.update_progress()
-        return jsonify({"message": "Progress updated successfully"}), 200
+        progress = geojson_handler.get_progress()
+        return jsonify({"progress": progress}), 200
     except Exception as e:
         logging.error(f"Error updating progress: {str(e)}", exc_info=True)
-        return jsonify({"error": "An error occurred while updating progress"}), 500
-
+        return jsonify({"error": f"Error updating progress: {str(e)}"}), 500
+    
 @app.route('/untraveled_streets')
 async def get_untraveled_streets():
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
@@ -151,7 +152,10 @@ async def get_latest_bouncie_data():
 @app.route("/live_route", methods=["GET"])
 async def live_route():
     async with live_route_lock:
-        return jsonify(getattr(app, 'live_route_data', {}))
+        live_route_data = getattr(app, 'live_route_data', {})
+        if not live_route_data or 'features' not in live_route_data or not live_route_data['features']:
+            return jsonify({"type": "FeatureCollection", "features": []})
+        return jsonify(live_route_data)
 
 # Data Routes
 @app.route("/historical_data_status")
@@ -194,17 +198,15 @@ async def get_historical_data():
 
         result = {"type": "FeatureCollection", "features": filtered_features, "total_features": len(filtered_features)}
         
-        compressed_data = gzip.compress(json.dumps(result).encode('utf-8'))
-
-        return Response(compressed_data, mimetype='application/json', headers={'Content-Encoding': 'gzip'})
+        return jsonify(result)
 
     except ValueError as e:
         logging.error(f"Error parsing date: {str(e)}")
         return jsonify({"error": f"Invalid date format: {str(e)}"}), 400
     except Exception as e:
         logging.error(f"Error filtering historical data: {str(e)}", exc_info=True)
-        return jsonify({"error": "Error filtering historical data", "details": str(e)}), 500
-    
+        return jsonify({"error": f"Error filtering historical data: {str(e)}"}), 500
+
 @app.route("/live_data")
 async def get_live_data():
     try:
@@ -312,6 +314,16 @@ async def update_historical_data():
             return jsonify({"error": f"An error occurred: {str(e)}"}), 500
         finally:
             app.is_processing = False
+
+@app.route("/progress_geojson")
+async def get_progress_geojson():
+    try:
+        waco_boundary = request.args.get("wacoBoundary", "city_limits")
+        progress_geojson = geojson_handler.get_progress_geojson(waco_boundary)
+        return jsonify(progress_geojson)
+    except Exception as e:
+        logging.error(f"Error getting progress GeoJSON: {str(e)}", exc_info=True)
+        return jsonify({"error": f"Error getting progress GeoJSON: {str(e)}"}), 500
 
 @app.route('/processing_status')
 async def processing_status():

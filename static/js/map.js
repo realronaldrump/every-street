@@ -252,10 +252,9 @@ async function loadLiveRouteData() {
             liveRoutePolyline = null;
         }
 
-        if (!data.features || !data.features[0] || !data.features[0].geometry || !data.features[0].geometry.coordinates) {
-            console.error('Invalid live route data:', data);
-            showFeedback('Error: Invalid live route data received from the server.', 'error');
-            return; 
+        if (!data.features || data.features.length === 0) {
+            console.log('No live route data available');
+            return;
         }
 
         const coordinates = data.features[0].geometry.coordinates;
@@ -289,6 +288,9 @@ async function loadLiveRouteData() {
 async function loadProgressData() {
     try {
         const response = await fetch('/progress_geojson');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
         const data = await response.json();
 
         if (progressLayer) {
@@ -313,11 +315,15 @@ async function loadProgressData() {
 
 async function updateProgress() {
     try {
-        const response = await fetch('/update_progress');
+        const response = await fetch('/update_progress', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
         if (!response.ok) {
-            throw new Error(`Error updating progress: ${response.status} ${response.statusText}`);
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
-
         const data = await response.json();
         progressBar.style.width = `${data.progress}%`;
         progressText.textContent = `${data.progress.toFixed(2)}% of Waco streets traveled`;
@@ -487,14 +493,11 @@ async function displayHistoricalData() {
         );
 
         if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
         }
 
-        const compressedData = await response.arrayBuffer();
-        const decompressedData = pako.inflate(new Uint8Array(compressedData), {
-            to: 'string'
-        });
-        const data = JSON.parse(decompressedData);
+        const data = await response.json();
 
         if (!data || !data.features || data.features.length === 0) {
             showFeedback('No historical data available for the selected period.', 'warning');
