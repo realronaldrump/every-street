@@ -1,17 +1,28 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Every Street</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
-    <link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css" />
-    <link rel="stylesheet" href="/static/css/styles.css">
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
-    <script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+    <title>Every Street - Tracking Davis in Waco</title>
+    <meta name="description" content="Track Davis as he conquers every street in Waco, Texas">
+
+    <!-- External Stylesheets -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+
+    <!-- External Libraries (with defer) -->
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js" defer></script>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.0.4/pako.min.js" defer></script>
+    <script src="{{ url_for('static', filename='js/worker.js') }}" defer></script>
 </head>
-<body>
+
+<body data-historical-data-loaded="{{ 'true' if historical_data_loaded else 'false' }}">
     <div class="container">
         <header>
             <h1>Every Street</h1>
@@ -20,34 +31,34 @@
 
         <div id="feedback-container"></div>
 
-        <main role="main">
-            <section id="filters" class="section filters">
-                <div id="time-filters" class="filter-group">
-                    <button onclick="filterRoutesBy('today')">Today</button>
-                    <button onclick="filterRoutesBy('yesterday')">Yesterday</button>
-                    <button onclick="filterRoutesBy('lastWeek')">Last Week</button>
-                    <button onclick="filterRoutesBy('lastMonth')">Last Month</button>
-                    <button onclick="filterRoutesBy('lastYear')">Last Year</button>
-                    <button onclick="filterRoutesBy('allTime')">All Time</button>
+        <main>
+            <section id="filters" class="filters">
+                <div class="filter-group" id="time-filters">
+                    <button data-filter="today">Today</button>
+                    <button data-filter="yesterday">Yesterday</button>
+                    <button data-filter="lastWeek">Last Week</button>
+                    <button data-filter="lastMonth">Last Month</button>
+                    <button data-filter="lastYear">Last Year</button>
+                    <button data-filter="allTime">All Time</button>
                 </div>
 
-                <div id="search-filters" class="filter-group">
+                <div class="filter-group" id="search-filters">
                     <div class="search-container">
-                        <input type="text" id="searchInput" placeholder="Search for a location">
-                        <button id="searchBtn">Search</button>
+                        <input type="text" id="searchInput" placeholder="Search for a location" aria-label="Search Location">
+                        <button id="searchBtn" aria-label="Search">Search</button>
                         <div id="searchSuggestions" role="listbox" aria-label="Search Suggestions"></div>
                     </div>
                 </div>
 
-                <div id="custom-filters" class="filter-group">
+                <div class="filter-group" id="custom-filters">
                     <div class="filter-row">
                         <div class="filter-item">
-                            <input type="checkbox" id="filterWaco" checked>
+                            <input type="checkbox" id="filterWaco" aria-label="Filter by Waco">
                             <label for="filterWaco">Filter by Waco</label>
                         </div>
                         <div class="filter-item">
                             <label for="wacoBoundarySelect">Waco Boundary:</label>
-                            <select id="wacoBoundarySelect">
+                            <select id="wacoBoundarySelect" aria-label="Select Waco Boundary">
                                 <option value="city_limits">Simplified City Limits</option>
                                 <option value="less_goofy">Precise but Less Goofy Lookin' Boundary</option>
                                 <option value="goofy">Precise (Goofy Lookin') Boundary</option>
@@ -57,60 +68,36 @@
                     <div class="filter-row">
                         <div class="filter-item">
                             <label for="startDate">Start Date:</label>
-                            <input type="date" id="startDate">
+                            <input type="date" id="startDate" value="2020-01-01" aria-label="Start Date">
                         </div>
                         <div class="filter-item">
                             <label for="endDate">End Date:</label>
-                            <input type="date" id="endDate">
+                            <input type="date" id="endDate" aria-label="End Date">
                         </div>
                     </div>
                     <div class="filter-row">
                         <button id="applyFilterBtn">Apply Filter</button>
-                        <button id="updateDataBtn">Check for new driving data</button>
+                        <button id="updateDataBtn">Check for New Driving Data</button>
                         <button id="exportToGPXBtn">Export to GPX</button>
                         <button id="clearDrawnShapesBtn">Clear Drawn Shapes</button>
                     </div>
                 </div>
             </section>
 
-            <section id="map" class="section" aria-label="Map of Davis's routes"></section>
+            <section id="map" aria-label="Map of Davis's Routes"></section>
 
-            <div id="map-controls" class="leaflet-bottom leaflet-left">
-                <div class="leaflet-control leaflet-bar">
-                    <div id="legend" class="map-control-item">
-                        <h4>Legend</h4>
-                        <div><span class="color-box blue"></span> Historical Routes</div>
-                        <div><span class="color-box green"></span> Traveled Waco Streets</div>
-                        <div><span class="color-box red"></span> Untraveled Waco Streets</div>
-                    </div>
-                    <div id="opacity-control" class="map-control-item">
-                        <label for="opacity-slider">Waco Streets Opacity:</label>
-                        <input type="range" id="opacity-slider" min="0" max="1" step="0.1" value="0.7">
-                    </div>
-                    <div id="streets-filter" class="map-control-item">
-                        <label for="streets-select">Show Waco Streets:</label>
-                        <select id="streets-select">
-                            <option value="all">All</option>
-                            <option value="traveled">Traveled Only</option>
-                            <option value="untraveled">Untraveled Only</option>
-                        </select>
-                    </div>
-                    <button id="toggleWacoStreetsBtn" class="map-control-item">Toggle Waco Streets</button>
-                </div>
-            </div>
-
-            <section id="playback-controls" class="section playback-controls">
-                <button id="playPauseBtn">Play</button>
-                <button id="stopBtn">Stop</button>
-                <button id="clearRouteBtn">Clear Route</button>
+            <section id="playback-controls" class="playback-controls">
+                <button id="playPauseBtn" aria-label="Play/Pause">Play</button>
+                <button id="stopBtn" aria-label="Stop">Stop</button>
+                <button id="clearRouteBtn" aria-label="Clear Route">Clear Route</button>
                 <div class="speed-control">
                     <label for="playbackSpeed">Speed:</label>
-                    <input type="range" id="playbackSpeed" min="0.1" max="5" step="0.1" value="1">
+                    <input type="range" id="playbackSpeed" min="0.5" max="2" step="0.1" value="1" aria-label="Playback Speed">
                     <span id="speedValue">1x</span>
                 </div>
             </section>
 
-            <section id="stats" class="section stats">
+            <section id="stats" class="stats">
                 <div class="stat-group">
                     <h3>Live Data</h3>
                     <div class="stat-cards">
@@ -164,38 +151,64 @@
                         </div>
                     </div>
                 </div>
-
-                <div class="stat-group">
-                    <h3>Waco Streets Progress</h3>
+                
+                <div class="stat-group"> 
+                    <h3>Waco Streets Progress</h3> 
                     <div class="stat-cards">
                         <div class="stat-card">
                             <h4>Progress</h4>
                             <div id="progress-bar-container">
                                 <div id="progress-bar"></div>
                             </div>
-                            <p id="progress-text">0% of Waco streets traveled</p>
+                            <p id="progress-text">0% of Waco Streets Traveled</p>
                         </div>
+                        <div class="stat-card"> 
+                            <button id="toggleUntraveledBtn" class="control-btn">Toggle Untraveled Streets</button> 
+                        </div> 
                     </div>
                 </div>
             </section>
         </main>
 
-        <footer>
+        <footer role="contentinfo">
             <div id="audio-player">
-                <audio controls>
-                    <source src="/static/roadsofwaco.mp3" type="audio/mpeg">
+                <audio id="audioPlayer" autoplay controls>
+                    <source id="audioSource" src="{{ url_for('static', filename='hypesong.mp3') }}" type="audio/mpeg">
+                    <source id="audioSource" src="{{ url_for('static', filename='roadsofwaco.mp3') }}" type="audio/mpeg">
                     Your browser does not support the audio element.
                 </audio>
-                <button id="skipBtn">Skip</button>
+                <button id="skipBtn" aria-label="Skip Track">Skip</button>
             </div>
             <div class="logout-container">
-                <form action="/logout" method="post">
+                <form method="POST" action="{{ url_for('logout') }}">
                     <button type="submit" class="logout-button">Logout</button>
                 </form>
             </div>
         </footer>
     </div>
 
-    <script src="/static/js/map.js"></script>
+    <script src="{{ url_for('static', filename='js/map.js') }}"></script>
+    <script>
+        const audioPlayer = document.getElementById('audioPlayer');
+        const audioSource = document.getElementById('audioSource');
+        const skipBtn = document.getElementById('skipBtn');
+        const tracks = [
+            "{{ url_for('static', filename='hypesong.mp3') }}",
+            "{{ url_for('static', filename='roadsofwaco.mp3') }}"
+        ];
+        let currentTrack = 0;
+    
+        function playNextTrack() {
+            currentTrack = (currentTrack + 1) % tracks.length;
+            audioSource.src = tracks[currentTrack];
+            console.log("Playing track:", tracks[currentTrack]); // Debugging line
+            audioPlayer.load();
+            audioPlayer.play().catch(error => console.error("Playback error:", error)); // Handle playback errors
+        }
+    
+        audioPlayer.addEventListener('ended', playNextTrack);
+        skipBtn.addEventListener('click', playNextTrack);
+    </script>
 </body>
+
 </html>

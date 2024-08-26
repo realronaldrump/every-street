@@ -15,7 +15,7 @@ from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day
 from waco_streets_analyzer import WacoStreetsAnalyzer
 import aiofiles
 from functools import partial
-from multiprocessing import Manager
+from multiprocessing import Manager, Pool, cpu_count
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
@@ -37,13 +37,24 @@ class GeoJSONHandler:
     async def update_all_progress(self):
         try:
             if self.waco_analyzer:
-                await asyncio.to_thread(self.waco_analyzer.update_progress, self.historical_geojson_features)
+                # Create a callback function for progress updates
+                def progress_callback(processed, total):
+                    progress = (processed / total) * 100
+                    logging.info(f"Progress: {progress:.2f}% ({processed}/{total})")
+
+                # Create the pool here
+                with Pool(processes=cpu_count() - 1) as pool:
+                    # Use pool.apply_async or pool.map
+                    pool.apply_async(
+                        self.waco_analyzer.update_progress,
+                        (self.historical_geojson_features, progress_callback)
+                    )
                 logging.info("Progress updated successfully")
             else:
                 logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
         except Exception as e:
             logging.error(f"Error updating progress: {str(e)}", exc_info=True)
-        
+    
     def _flatten_coordinates(self, coords):
         flat_coords = []
         for item in coords:
@@ -340,30 +351,13 @@ class GeoJSONHandler:
         logging.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
 
-    async def update_all_progress(self):
-        try:
-            if self.waco_analyzer:
-                # Create a callback function for progress updates
-                def progress_callback(processed, total):
-                    progress = (processed / total) * 100
-                    logging.info(f"Progress: {progress:.2f}% ({processed}/{total})")
-
-                await asyncio.to_thread(
-                    self.waco_analyzer.update_progress, 
-                    self.historical_geojson_features,
-                )
-                logging.info("Progress updated successfully")
-            else:
-                logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
-        except Exception as e:
-            logging.error(f"Error updating progress: {str(e)}", exc_info=True)
     async def initialize_data(self):
         try:
             logging.info("Starting to load historical data...")
             await self.load_historical_data()
             logging.info("Historical data loaded successfully.")
             logging.info("Updating progress...")
-            await self.update_all_progress()
+            await self.update_all_progress()  # Await the progress update
             logging.info("Progress updated successfully.")
         except Exception as e:
             logging.error(f"Error during data initialization: {str(e)}", exc_info=True)

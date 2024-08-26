@@ -178,7 +178,7 @@ def create_app():
             if filter_waco and waco_boundary != "none":
                 waco_limits = app.geojson_handler.load_waco_boundary(waco_boundary)
 
-            filtered_features = await app.geojson_handler.filter_geojson_features(
+            filtered_features = app.geojson_handler.filter_geojson_features(
                 start_date,
                 end_date,
                 filter_waco,
@@ -351,7 +351,7 @@ def create_app():
         async with app.historical_data_lock:
             return await render_template("index.html", today=today, historical_data_loaded=app.historical_data_loaded)
 
-# Async Tasks (continued)
+# Async Tasks
     async def poll_bouncie_api():
         while True:
             try:
@@ -406,11 +406,14 @@ def create_app():
             logger.debug("Live route data loaded")
             
             logger.info("Initializing historical data...")
-            await app.geojson_handler.initialize_data()
+            await load_historical_data_background()  # Await the background task
             logger.info("Historical data initialized")
             
-            app.task_manager.add_task(poll_bouncie_api())
-            logger.debug("Bouncie API polling task added")
+            # Add the Bouncie API polling task only once
+            if not hasattr(app, 'background_tasks_started'):
+                app.task_manager.add_task(poll_bouncie_api())
+                app.background_tasks_started = True
+                logger.debug("Bouncie API polling task added")
             
             logger.debug(f"Available routes: {app.url_map}")
             logger.info("Application initialization complete")
