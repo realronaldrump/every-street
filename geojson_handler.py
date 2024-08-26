@@ -351,7 +351,6 @@ class GeoJSONHandler:
                 await asyncio.to_thread(
                     self.waco_analyzer.update_progress, 
                     self.historical_geojson_features,
-                    progress_callback
                 )
                 logging.info("Progress updated successfully")
             else:

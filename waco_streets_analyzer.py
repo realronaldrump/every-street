@@ -75,15 +75,13 @@ class WacoStreetsAnalyzer:
                         traveled_segments.add(matching_segments.index[0])
         return traveled_segments
 
-    def update_progress(self, new_routes, progress_callback=None):
+    def update_progress(self, new_routes):
         logging.info(f"Updating progress with {len(new_routes)} new routes...")
 
         with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count() - 1) as executor:
             futures = [executor.submit(self._process_route, route) for route in new_routes]
-            for i, future in enumerate(as_completed(futures)):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Processing routes"):
                 self.traveled_segments.update(future.result())
-                if progress_callback:
-                    progress_callback(i + 1, len(new_routes))
 
         logging.info("Progress update complete.")
 
