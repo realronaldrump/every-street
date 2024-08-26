@@ -152,11 +152,10 @@ class GeoJSONHandler:
                     bbox = self._calculate_bounding_box(feature)
                     self.idx.insert(i, bbox)
 
-            await self.update_all_progress()
-
         except Exception as e:
             logging.error(f"Unexpected error loading historical data: {str(e)}", exc_info=True)
             raise Exception(f"Error loading historical data: {str(e)}")
+        
     async def update_historical_data(self, fetch_all=False):
         try:
             logging.info("Starting update_historical_data")
@@ -361,3 +360,24 @@ class GeoJSONHandler:
         except Exception as e:
             logging.error(f"Error during data initialization: {str(e)}", exc_info=True)
             raise
+
+    def get_waco_streets(self, waco_boundary, streets_filter='all'):
+        waco_streets = gpd.read_file('static/Waco-Streets.geojson')
+        waco_limits = self.load_waco_boundary(waco_boundary)
+        
+        if waco_limits:
+            waco_streets = waco_streets[waco_streets.intersects(waco_limits)]
+        
+        traveled_streets = set()
+        for feature in self.historical_geojson_features:
+            line = shape(feature['geometry'])
+            traveled_streets.update(waco_streets[waco_streets.intersects(line)].index)
+        
+        waco_streets['traveled'] = waco_streets.index.isin(traveled_streets)
+        
+        if streets_filter == 'traveled':
+            waco_streets = waco_streets[waco_streets['traveled']]
+        elif streets_filter == 'untraveled':
+            waco_streets = waco_streets[~waco_streets['traveled']]
+        
+        return json.loads(waco_streets.to_json())

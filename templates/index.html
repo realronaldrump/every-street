@@ -85,6 +85,28 @@
             </section>
 
             <section id="map" aria-label="Map of Davis's routes"></section>
+            <div id="map-controls" class="leaflet-bottom leaflet-left">
+                <div class="leaflet-control leaflet-bar">
+                  <div id="legend" class="map-control-item">
+                    <h4>Legend</h4>
+                    <div><span class="color-box blue"></span> Historical Routes</div>
+                    <div><span class="color-box green"></span> Traveled Waco Streets</div>
+                    <div><span class="color-box red"></span> Untraveled Waco Streets</div>
+                  </div>
+                  <div id="opacity-control" class="map-control-item">
+                    <label for="opacity-slider">Waco Streets Opacity:</label>
+                    <input type="range" id="opacity-slider" min="0" max="1" step="0.1" value="0.7">
+                  </div>
+                  <div id="streets-filter" class="map-control-item">
+                    <label for="streets-select">Show Waco Streets:</label>
+                    <select id="streets-select">
+                      <option value="all">All</option>
+                      <option value="traveled">Traveled Only</option>
+                      <option value="untraveled">Untraveled Only</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
 
             <section id="playback-controls" class="playback-controls">
                 <button id="playPauseBtn" aria-label="Play/Pause">Play</button>

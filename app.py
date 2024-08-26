@@ -330,6 +330,13 @@ async def processing_status():
     async with processing_lock:
         return jsonify({'isProcessing': app.is_processing})
 
+@app.route('/waco_streets')
+async def get_waco_streets():
+    waco_boundary = request.args.get("wacoBoundary", "city_limits")
+    streets_filter = request.args.get("filter", "all")
+    streets_geojson = geojson_handler.get_waco_streets(waco_boundary, streets_filter)
+    return jsonify(streets_geojson)
+
 # Authentication Routes
 @app.route("/login", methods=["GET", "POST"])
 async def login():
@@ -392,16 +399,7 @@ async def poll_bouncie_api():
             logging.error(f"An error occurred while fetching live data: {e}")
             await asyncio.sleep(5)
 
-async def load_historical_data_background():
-    app.historical_data_loading = True
-    try:
-        await geojson_handler.load_historical_data()
-        app.historical_data_loaded = True
-        logging.info("Historical data loaded successfully")
-    except Exception as e:
-        logging.error(f"Error loading historical data: {str(e)}", exc_info=True)
-    finally:
-        app.historical_data_loading = False
+
 
 
 # ------------------------------ APP LIFECYCLE EVENTS ------------------------------ #
@@ -410,7 +408,6 @@ async def load_historical_data_background():
 async def startup():
     app.historical_data_loaded = False
     app.historical_data_loading = False
-    asyncio.create_task(load_historical_data_background())
     logging.info("Starting application initialization...")
     try:
         app.live_route_data = load_live_route_data()
