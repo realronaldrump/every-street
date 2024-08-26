@@ -7,7 +7,6 @@ from bounciepy import AsyncRESTAPIClient
 from geopy.geocoders import Nominatim
 from dotenv import load_dotenv
 import os
-from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day
 
 load_dotenv()
 
@@ -19,6 +18,7 @@ VEHICLE_ID = os.getenv("VEHICLE_ID")
 DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 
 ENABLE_GEOCODING = True
+
 
 class BouncieAPI:
     def __init__(self):
@@ -40,27 +40,29 @@ class BouncieAPI:
                 return None
 
             stats = vehicle_data["stats"]
-            location = stats.get("location", {})
+            location = stats.get("location")
 
             if not location:
                 logging.error("No location data found in Bouncie stats")
                 return None
 
             location_address = (
-                await self.reverse_geocode(location.get("lat"), location.get("lon"))
-                if ENABLE_GEOCODING and location.get("lat") is not None and location.get("lon") is not None
+                await self.reverse_geocode(location["lat"], location["lon"])
+                if ENABLE_GEOCODING
                 else "N/A"
             )
 
             try:
                 timestamp_iso = stats["lastUpdated"]
-                timestamp_dt = parse_date(timestamp_iso)
+                timestamp_dt = datetime.fromisoformat(
+                    timestamp_iso.replace("Z", "+00:00")
+                )
                 timestamp_unix = int(timestamp_dt.timestamp())
             except Exception as e:
                 logging.error(f"Error converting timestamp: {e}")
                 return None
 
-            bouncie_status = stats.get("battery", {}).get("status", "unknown")
+            bouncie_status = stats["battery"]["status"]
             battery_state = (
                 "full"
                 if bouncie_status == "normal"
@@ -70,14 +72,14 @@ class BouncieAPI:
             )
 
             logging.info(
-                f"Latest Bouncie data retrieved: {location.get('lat')}, {location.get('lon')} at {timestamp_unix}"
+                f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}"
             )
             return {
-                "latitude": location.get("lat"),
-                "longitude": location.get("lon"),
+                "latitude": location["lat"],
+                "longitude": location["lon"],
                 "timestamp": timestamp_unix,
                 "battery_state": battery_state,
-                "speed": stats.get("speed", 0),
+                "speed": stats["speed"],
                 "device_id": DEVICE_IMEI,
                 "address": location_address,
             }
@@ -88,7 +90,9 @@ class BouncieAPI:
     async def reverse_geocode(self, lat, lon, retries=3):
         for attempt in range(retries):
             try:
-                location = await asyncio.to_thread(self.geolocator.reverse, (lat, lon), addressdetails=True)
+                location = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: self.geolocator.reverse((lat, lon), addressdetails=True)
+                )
                 if location:
                     address = location.raw["address"]
                     place = address.get("place", "")
@@ -115,9 +119,8 @@ class BouncieAPI:
         return "N/A"
 
     async def fetch_trip_data(self, session, vehicle_id, date, headers):
-        parsed_date = parse_date(date)
-        start_time = format_date(get_start_of_day(parsed_date))
-        end_time = format_date(get_end_of_day(parsed_date))
+        start_time = f"{date}T00:00:00-05:00"
+        end_time = f"{date}T23:59:59-05:00"
         summary_url = f"https://www.bouncie.app/api/vehicles/{vehicle_id}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
         async with session.get(summary_url, headers=headers) as response:
@@ -129,7 +132,9 @@ class BouncieAPI:
                 return None
 
     async def get_trip_metrics(self):
-        time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
+        time_since_update = datetime.now(timezone.utc) - self.live_trip_data[
+            "last_updated"
+        ]
         if time_since_update.total_seconds() > 45:
             self.live_trip_data["data"] = []
 
@@ -162,8 +167,14 @@ class BouncieAPI:
             "total_distance": round(total_distance, 2),
             "total_time": self._format_time(total_time),
             "max_speed": max_speed,
-            "start_time": format_date(datetime.fromtimestamp(start_time, timezone.utc)) if start_time else "N/A",
-            "end_time": format_date(datetime.fromtimestamp(end_time, timezone.utc)) if end_time else "N/A",
+            "start_time": datetime.fromtimestamp(start_time).strftime(
+                "%Y-%m-%d %H:%M:%S"
+            )
+            if start_time
+            else "N/A",
+            "end_time": datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S")
+            if end_time
+            else "N/A",
         }
 
         logging.info(f"Returning trip metrics: {formatted_metrics}")

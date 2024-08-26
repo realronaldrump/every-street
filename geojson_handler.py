@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import geopandas as gpd
 import aiohttp
-from shapely.geometry import Polygon, LineString, MultiLineString, box, shape
+from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString, box, shape
+from shapely.ops import unary_union
 from rtree import index
 
 from bouncie_api import BouncieAPI
@@ -63,7 +64,7 @@ class GeoJSONHandler:
         try:
             gdf = gpd.read_file(f"static/{boundary_type}.geojson")
             if not gdf.empty:
-                return gdf.geometry[0]  # Return the first geometry (polygon)
+                return gdf.geometry.unary_union  # This will return a single geometry, even if it's a MultiPolygon
             else:
                 logging.error(f"No features found in {boundary_type}.geojson")
                 return None
@@ -85,66 +86,35 @@ class GeoJSONHandler:
 
     def clip_route_to_boundary(self, feature, waco_limits):
         try:
-            if not all(isinstance(sublist, list) for sublist in waco_limits):
-                raise ValueError("waco_limits must be a list of lists representing coordinates.")
-
-            flattened_waco_limits = [
-                (coord[0], coord[1])
-                for coord in self._flatten_coordinates(waco_limits)
-            ]
-
-            if len(flattened_waco_limits) <= 1:
-                raise ValueError(f"waco_limits invalid: {flattened_waco_limits}")
-
-            logging.debug(f"Flattened Waco Limits: {flattened_waco_limits}")
-
-            if len(waco_limits) > 1:
-                exterior_coords = waco_limits[0][0]
-                holes = [ring[0] for ring in waco_limits[1:]]
-                waco_polygon = Polygon(exterior_coords, holes=holes)
+            if isinstance(waco_limits, (Polygon, MultiPolygon)):
+                waco_polygon = waco_limits
             else:
-                waco_polygon = Polygon(waco_limits[0][0])
-
-            waco_polygon = waco_polygon.buffer(0)
+                raise ValueError("waco_limits must be a Polygon or MultiPolygon")
 
             route_geometry = feature["geometry"]
             route_type = route_geometry["type"]
-            route_coords = route_geometry.get("coordinates", [])
+            route_coords = route_geometry["coordinates"]
 
             if route_type == "LineString":
-                route_coords = [(coord[0], coord[1]) for coord in route_coords]
-                if len(route_coords) == 1:
-                    logging.warning(f"Single-point route encountered, skipping: {route_coords}")
-                    return None
                 route_line = LineString(route_coords)
                 clipped_geometry = route_line.intersection(waco_polygon)
             elif route_type == "MultiLineString":
-                clipped_lines = []
-                for line_coords in route_coords:
-                    line_coords = [(coord[0], coord[1]) for coord in line_coords]
-                    route_line = LineString(line_coords)
-                    clipped_line = route_line.intersection(waco_polygon)
-                    if not clipped_line.is_empty and clipped_line.is_valid and isinstance(clipped_line, LineString):
-                        clipped_lines.append(list(clipped_line.coords))
-                if clipped_lines:
-                    clipped_geometry = MultiLineString(clipped_lines)
-                else:
-                    return None
+                route_multi_line = MultiLineString(route_coords)
+                clipped_geometry = route_multi_line.intersection(waco_polygon)
             else:
                 logging.warning(f"Unsupported geometry type: {route_type}")
                 return None
 
-            if clipped_geometry.is_empty or not clipped_geometry.is_valid:
-                logging.debug("Clipped geometry is empty or invalid, skipping this feature.")
+            if clipped_geometry.is_empty:
                 return None
 
             return {
                 "type": "Feature",
                 "geometry": {
                     "type": clipped_geometry.geom_type,
-                    "coordinates": list(clipped_geometry.coords)
-                    if isinstance(clipped_geometry, LineString)
-                    else [list(line.coords) for line in clipped_geometry.geoms],
+                    "coordinates": list(clipped_geometry.coords) if isinstance(clipped_geometry, LineString)
+                    else [list(line.coords) for line in clipped_geometry.geoms] if isinstance(clipped_geometry, MultiLineString)
+                    else []
                 },
                 "properties": feature["properties"],
             }
@@ -186,8 +156,7 @@ class GeoJSONHandler:
 
         except Exception as e:
             logging.error(f"Unexpected error loading historical data: {str(e)}", exc_info=True)
-            raise
-
+            raise Exception(f"Error loading historical data: {str(e)}")
     async def update_historical_data(self, fetch_all=False):
         try:
             logging.info("Starting update_historical_data")
@@ -195,16 +164,16 @@ class GeoJSONHandler:
             logging.info("Access token obtained")
 
             if fetch_all:
-                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2024, 8, 1, tzinfo=timezone.utc)
             elif self.historical_geojson_features:
                 latest_timestamp = max(
                     feature["properties"]["timestamp"]
                     for feature in self.historical_geojson_features
                     if feature["properties"].get("timestamp") is not None
                 )
-                latest_date = datetime.fromtimestamp(latest_timestamp, timezone.utc)
+                latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
             else:
-                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2024, 8, 1, tzinfo=timezone.utc)
 
             today = datetime.now(tz=timezone.utc)
             all_trips = []
@@ -214,8 +183,9 @@ class GeoJSONHandler:
                     "Accept": "application/json",
                     "Authorization": self.bouncie_api.client.access_token,
                 }
-                for current_date in date_range(latest_date, today):
-                    date_str = format_date(current_date)
+                current_date = latest_date
+                while current_date < today:
+                    date_str = current_date.strftime("%Y-%m-%d")
                     trips_data = await self.bouncie_api.fetch_trip_data(
                         session, VEHICLE_ID, date_str, headers
                     )
@@ -224,6 +194,7 @@ class GeoJSONHandler:
                         logging.info(f"Fetched trips data for {date_str}")
                     else:
                         logging.info(f"No trips data found for {date_str}")
+                    current_date += timedelta(days=1)
 
             logging.info(f"Fetched {len(all_trips)} trips")
             new_features = self.create_geojson_features_from_trips(all_trips)
@@ -236,11 +207,6 @@ class GeoJSONHandler:
                 for i, feature in enumerate(new_features):
                     bbox = self._calculate_bounding_box(feature)
                     self.idx.insert(len(self.historical_geojson_features) - len(new_features) + i, bbox)
-
-                if self.waco_analyzer:
-                    await asyncio.to_thread(self.waco_analyzer.update_progress, new_features)
-                else:
-                    logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
 
         except Exception as e:
             logging.error(f"An error occurred during historical data update: {e}", exc_info=True)
@@ -278,7 +244,11 @@ class GeoJSONHandler:
         for month_year, features in self.monthly_data.items():
             filename = f"static/historical_data_{month_year}.geojson"
             async with aiofiles.open(filename, "w") as f:
-                await f.write(json.dumps({"type": "FeatureCollection", "features": features}))
+                await f.write(json.dumps({
+                    "type": "FeatureCollection",
+                    "crs": { "type": "name", "properties": { "name": "EPSG:4326" } }, 
+                    "features": features
+                }, indent=4))
 
         logging.info(f"Updated monthly files with {len(new_features)} new features")
 
@@ -286,9 +256,11 @@ class GeoJSONHandler:
         start_datetime = get_start_of_day(parse_date(start_date))
         end_datetime = get_end_of_day(parse_date(end_date))
 
-        filtered_features = []
-
         logging.info(f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}")
+        logging.info(f"Original start_date: {start_date}, end_date: {end_date}")
+        logging.info(f"Parsed start_datetime: {start_datetime}, end_datetime: {end_datetime}")
+        
+        filtered_features = []
         
         features_to_filter = features if features is not None else self.historical_geojson_features
         logging.info(f"Total features before filtering: {len(features_to_filter)}")
@@ -296,18 +268,13 @@ class GeoJSONHandler:
         if bounds:
             bounding_box = box(bounds[0], bounds[1], bounds[2], bounds[3])
 
-        for i, feature in enumerate(features_to_filter):
+        for feature in features_to_filter:
             timestamp = feature["properties"].get("timestamp")
             if timestamp is not None:
                 try:
-                    # Ensure timestamp is an integer
                     timestamp = int(float(timestamp))
-                    route_datetime = datetime.fromtimestamp(timestamp, timezone.utc)
-                    logging.debug(f"Feature {i} timestamp: {route_datetime}")
+                    route_datetime = datetime.fromtimestamp(timestamp, tz=timezone.utc)
                     if start_datetime <= route_datetime <= end_datetime:
-                        logging.debug(f"Feature {i} within date range")
-                        
-                        # Apply bounding box filter if provided
                         if bounds:
                             feature_geom = shape(feature['geometry'])
                             if not feature_geom.intersects(bounding_box):
@@ -317,22 +284,14 @@ class GeoJSONHandler:
                             clipped_route = self.clip_route_to_boundary(feature, waco_limits)
                             if clipped_route:
                                 filtered_features.append(clipped_route)
-                                logging.debug(f"Feature {i} clipped and added")
-                            else:
-                                logging.debug(f"Feature {i} clipped but resulted in empty geometry")
                         else:
                             filtered_features.append(feature)
-                            logging.debug(f"Feature {i} added (no Waco filter)")
-                    else:
-                        logging.debug(f"Feature {i} outside date range: {route_datetime}")
                 except ValueError:
-                    logging.warning(f"Invalid timestamp for feature {i}: {timestamp}")
+                    logging.warning(f"Invalid timestamp for feature: {timestamp}")
             else:
-                logging.warning(f"Feature {i} has no timestamp")
+                logging.warning(f"Feature has no timestamp")
 
         logging.info(f"Filtered {len(filtered_features)} features")
-        if not filtered_features:
-            logging.warning("No features found after filtering")
         return filtered_features
 
     def get_feature_timestamps(self, feature):

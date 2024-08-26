@@ -65,19 +65,6 @@ app.historical_data_loaded = False
 app.historical_data_loading = False
 app.is_processing = False
 
-# Redis Configuration
-redis_url = os.getenv('REDIS_URL')
-if redis_url and redis_url.startswith(('redis://', 'rediss://', 'unix://')):
-    try:
-        redis_client = Redis.from_url(redis_url, socket_connect_timeout=5)
-        redis_client.ping()
-        logging.info("Redis connected successfully")
-    except redis.exceptions.ConnectionError:
-        logging.warning("Redis is not available. Falling back to non-caching mode.")
-        redis_client = None
-else:
-    logging.warning("Redis URL not set or invalid. Running without Redis.")
-    redis_client = None
 
 # Initialize API Clients and Handlers
 geojson_handler = GeoJSONHandler()
@@ -140,26 +127,14 @@ async def get_progress():
     progress = geojson_handler.waco_analyzer.calculate_progress()
     return jsonify({'progress': progress})
 
-@app.route('/update_progress')
-async def update_progress(self):
-    """Updates progress based on recent historical data."""
+@app.route("/update_progress", methods=["POST"])
+async def update_progress():
     try:
-        logging.info("Starting progress update...")
-        recent_data = await self.get_recent_historical_data()
-        logging.info(f"Retrieved {len(recent_data)} recent data points")
-        
-        if self.waco_analyzer:
-            # Add a timeout of 60 seconds (adjust as needed)
-            await asyncio.wait_for(self.waco_analyzer.update_progress(recent_data), timeout=60)
-            logging.info("Progress updated successfully")
-        else:
-            logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
-        
-        logging.info("Progress update completed")
-    except asyncio.TimeoutError:
-        logging.error("Progress update timed out after 60 seconds")
+        await geojson_handler.update_progress()
+        return jsonify({"message": "Progress updated successfully"}), 200
     except Exception as e:
         logging.error(f"Error updating progress: {str(e)}", exc_info=True)
+        return jsonify({"error": "An error occurred while updating progress"}), 500
 
 @app.route('/untraveled_streets')
 async def get_untraveled_streets():
@@ -190,11 +165,13 @@ async def historical_data_status():
 @app.route("/historical_data")
 async def get_historical_data():
     try:
-        start_date = parse_date(request.args.get("startDate", "2020-01-01"))
-        end_date = parse_date(request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+        start_date = request.args.get("startDate", "2020-01-01")
+        end_date = request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
         filter_waco = request.args.get("filterWaco", "false").lower() == "true"
         waco_boundary = request.args.get("wacoBoundary", "city_limits")
         bounds_str = request.args.get("bounds", None)
+
+        logging.info(f"Received request for historical data: start_date={start_date}, end_date={end_date}, filter_waco={filter_waco}, waco_boundary={waco_boundary}")
 
         bounds = None
         if bounds_str:
@@ -203,37 +180,21 @@ async def get_historical_data():
             except ValueError:
                 return jsonify({"error": "Invalid bounds format"}), 400
 
-        cache_key = f"historical_data:{format_date(start_date)}:{format_date(end_date)}:{filter_waco}:{waco_boundary}:{bounds}"
-        cached_data = redis_client.get(cache_key) if redis_client else None
-
-        if cached_data:
-            return Response(cached_data, mimetype='application/json')
-
         waco_limits = None
         if filter_waco and waco_boundary != "none":
             waco_limits = geojson_handler.load_waco_boundary(waco_boundary)
 
-        filtered_features = []
-        
-        async with historical_data_lock:
-            for current_date in date_range(start_date, end_date):
-                month_year = current_date.strftime("%Y-%m")
-                if month_year in geojson_handler.monthly_data:
-                    month_features = geojson_handler.filter_geojson_features(
-                        format_date(get_start_of_day(current_date)),
-                        format_date(get_end_of_day(current_date)),
-                        filter_waco,
-                        waco_limits, 
-                        geojson_handler.monthly_data[month_year],
-                        bounds
-                    )
-                    filtered_features.extend(month_features)
+        filtered_features = geojson_handler.filter_geojson_features(
+            start_date,
+            end_date,
+            filter_waco,
+            waco_limits,
+            bounds=bounds
+        )
 
         result = {"type": "FeatureCollection", "features": filtered_features, "total_features": len(filtered_features)}
         
         compressed_data = gzip.compress(json.dumps(result).encode('utf-8'))
-        if redis_client:
-            redis_client.setex(cache_key, 3600, compressed_data)  # Cache for 1 hour
 
         return Response(compressed_data, mimetype='application/json', headers={'Content-Encoding': 'gzip'})
 
@@ -243,7 +204,7 @@ async def get_historical_data():
     except Exception as e:
         logging.error(f"Error filtering historical data: {str(e)}", exc_info=True)
         return jsonify({"error": "Error filtering historical data", "details": str(e)}), 500
-
+    
 @app.route("/live_data")
 async def get_live_data():
     try:
@@ -343,7 +304,7 @@ async def update_historical_data():
         try:
             app.is_processing = True
             logging.info("Starting historical data update process")
-            await geojson_handler.update_historical_data()
+            await geojson_handler.update_historical_data(fetch_all=True)  # Added fetch_all=True
             logging.info("Historical data update process completed")
             return jsonify({"message": "Historical data updated successfully!"}), 200
         except Exception as e:
@@ -420,19 +381,24 @@ async def poll_bouncie_api():
             await asyncio.sleep(5)
 
 async def load_historical_data_background():
-    async with historical_data_lock:
-        if not app.historical_data_loaded and not app.historical_data_loading:
-            app.historical_data_loading = True
-            try:
-                await geojson_handler.load_historical_data()
-                app.historical_data_loaded = True
-            finally:
-                app.historical_data_loading = False
+    app.historical_data_loading = True
+    try:
+        await geojson_handler.load_historical_data()
+        app.historical_data_loaded = True
+        logging.info("Historical data loaded successfully")
+    except Exception as e:
+        logging.error(f"Error loading historical data: {str(e)}", exc_info=True)
+    finally:
+        app.historical_data_loading = False
+
 
 # ------------------------------ APP LIFECYCLE EVENTS ------------------------------ #
 
 @app.before_serving
 async def startup():
+    app.historical_data_loaded = False
+    app.historical_data_loading = False
+    asyncio.create_task(load_historical_data_background())
     logging.info("Starting application initialization...")
     try:
         app.live_route_data = load_live_route_data()
@@ -449,8 +415,7 @@ async def startup():
         logging.info("Application initialization complete.")
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
-        raise  # Re-raise the exception to prevent the app from starting with incomplete initialization
-
+        raise
 
 @app.after_serving
 async def shutdown():
@@ -471,6 +436,7 @@ if __name__ == "__main__":
         hyper_config = HyperConfig()
         hyper_config.bind = ["0.0.0.0:8080"]
         hyper_config.workers = 1
+        hyper_config.startup_timeout = 36000
         logging.info("Starting Hypercorn server...")
         try:
             await serve(app, hyper_config)
