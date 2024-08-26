@@ -648,10 +648,14 @@ button:disabled {
 
 /* Add these styles to your existing CSS file */
 #map-controls {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
   background-color: rgba(255, 255, 255, 0.8);
   padding: 10px;
   border-radius: 5px;
   box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+  z-index: 1000;
 }
 
 .map-control-item {
@@ -676,4 +680,12 @@ button:disabled {
 
 #opacity-slider, #streets-select {
   width: 100%;
+}
+
+.leaflet-bottom .leaflet-control {
+  margin-bottom: 10px;
+}
+
+.toggle-untraveled-btn {
+  display: none;  /* Hide the old button */
 }

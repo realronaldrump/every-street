@@ -163,7 +163,7 @@ class GeoJSONHandler:
             logging.info("Access token obtained")
 
             if fetch_all:
-                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2024, 8, 1, tzinfo=timezone.utc)
             elif self.historical_geojson_features:
                 latest_timestamp = max(
                     feature["properties"]["timestamp"]
@@ -172,7 +172,7 @@ class GeoJSONHandler:
                 )
                 latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
             else:
-                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+                latest_date = datetime(2024, 8, 1, tzinfo=timezone.utc)
 
             today = datetime.now(tz=timezone.utc)
             all_trips = []
