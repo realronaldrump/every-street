@@ -1131,6 +1131,16 @@ function setupEventListeners() {
             });
         }
     });
+    // Event listener for the new "Hide Waco Streets" button
+    const hideWacoStreetsBtn = document.getElementById('hideWacoStreetsBtn');
+    if (hideWacoStreetsBtn) {
+        hideWacoStreetsBtn.addEventListener('click', () => {
+            if (wacoStreetsLayer) {
+                map.removeLayer(wacoStreetsLayer);
+                showFeedback('Waco streets hidden', 'info');
+            }
+        });
+    }
 
     document.getElementById('streets-select').addEventListener('change', function(e) {
         wacoStreetsFilter = e.target.value;
