@@ -295,6 +295,136 @@ async function loadLiveRouteData() {
     }
 }
 
+// Add this function to load and display the progress data
+async function loadProgressData() {
+    try {
+        const response = await fetch('/progress_geojson');
+        const data = await response.json();
+
+        if (progressLayer) {
+            map.removeLayer(progressLayer);
+        }
+
+        progressLayer = L.geoJSON(data, {
+            style: function(feature) {
+                return {
+                    color: feature.properties.traveled ? '#00ff00' : '#ff0000',
+                    weight: 2,
+                    opacity: 0.7
+                };
+            }
+        }).addTo(map);
+    } catch (error) {
+        console.error('Error loading progress data:', error);
+        showFeedback('Error loading progress data. Please try again.', 'error');
+    }
+}
+
+// Add this function to update the progress bar
+async function updateProgress() {
+    try {
+        const response = await fetch('/update_progress');
+        if (!response.ok) {
+            throw new Error(`Error updating progress: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        
+        progressBar.style.width = `${data.progress}%`;
+        progressText.textContent = `${data.progress.toFixed(2)}% of Waco streets traveled`;
+    } catch (error) {
+        console.error('Error updating progress:', error);
+        showFeedback(error.message, 'error');
+    }
+}
+
+// Add this function to load untraveled streets
+async function loadUntraveledStreets() {
+    try {
+        const response = await fetch(`/untraveled_streets?wacoBoundary=${wacoBoundarySelect.value}`);
+        if (!response.ok) {
+            throw new Error(`Error loading untraveled streets: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        if (untraveledStreetsLayer) {
+            map.removeLayer(untraveledStreetsLayer);
+        }
+
+        untraveledStreetsLayer = L.geoJSON(data, {
+            style: {
+                color: 'white',
+                weight: 2,
+                opacity: 0.4
+            },
+            filter: feature => !feature.properties.traveled
+        }).addTo(map);
+    } catch (error) {
+        console.error('Error loading untraveled streets:', error);
+        showFeedback(error.message, 'error');
+    }
+}
+
+// Add this function to toggle untraveled streets
+function toggleUntraveledStreets() {
+    if (untraveledStreetsLayer && map.hasLayer(untraveledStreetsLayer)) {
+        map.removeLayer(untraveledStreetsLayer);
+    } else if (untraveledStreetsLayer) {
+        untraveledStreetsLayer.addTo(map);
+    }
+}
+
+// Modify your initializeApp function to include the new functionality
+async function initializeApp() {
+    try {
+        endDateInput.value = new Date().toISOString().slice(0, 10);
+
+        showFeedback('Initializing application...', 'info');
+
+        await loadWacoLimits(selectedWacoBoundary);
+        await checkHistoricalDataStatus();
+        await updateProgress();
+        await loadUntraveledStreets();
+        await loadProgressData();
+
+        // Set up periodic updates
+        setInterval(loadProgressData, 300000); // Update progress data every 5 minutes
+        setInterval(updateProgress, 60000); // Update progress bar every minute
+        setInterval(loadUntraveledStreets, 300000); // Update untraveled streets every 5 minutes
+
+
+        if (!historicalDataLoaded) {
+            const checkInterval = setInterval(async () => {
+                await checkHistoricalDataStatus();
+                if (historicalDataLoaded || historicalDataLoadAttempts >= MAX_LOAD_ATTEMPTS) {
+                    clearInterval(checkInterval);
+                    if (historicalDataLoaded) {
+                        showFeedback('Historical data loaded successfully', 'success');
+                        await displayHistoricalData();
+                    }
+                }
+            }, 5000);
+        }
+
+        await loadLiveRouteData();
+        setInterval(updateLiveDataAndMetrics, 3000);
+
+        showFeedback('Application initialized successfully', 'success');
+    } catch (error) {
+        console.error('Error initializing application:', error);
+        showFeedback(`Error initializing application: ${error.message}. Please refresh the page.`, 'error');
+    }
+}
+
+// Add event listener for the toggle untraveled streets button
+document.getElementById('toggleUntraveledBtn').addEventListener('click', toggleUntraveledStreets);
+
+// Call initializeApp when the page loads
+document.addEventListener('DOMContentLoaded', initializeApp);
+
 // Update live data on the map and stats
 function updateLiveData(data) {
     document.getElementById('lastUpdated').textContent = new Date(data.timestamp * 1000).toLocaleString();
@@ -927,6 +1057,8 @@ function setupEventListeners() {
             if (response.ok) {
                 showFeedback(data.message, 'success');
                 await displayHistoricalData();
+                await updateProgress();
+                await loadUntraveledStreets(); 
             } else {
                 throw new Error(data.error);
             }

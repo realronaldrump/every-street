@@ -5,14 +5,14 @@ import logging
 import aiofiles
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
-from geopandas import gpd
-
+import geopandas as gpd
 import aiohttp
 from shapely.geometry import Polygon, LineString, MultiLineString, box, shape
 from rtree import index
 
 from bouncie_api import BouncieAPI
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
+from waco_streets_analyzer import WacoStreetsAnalyzer
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
@@ -23,7 +23,18 @@ class GeoJSONHandler:
         self.fetched_trip_timestamps = set()
         self.idx = index.Index()
         self.monthly_data = defaultdict(list)
+        self.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
 
+    async def update_all_progress(self):
+        try:
+            if self.waco_analyzer:
+                await asyncio.to_thread(self.waco_analyzer.update_progress, self.historical_geojson_features)
+                logging.info("Progress updated successfully")
+            else:
+                logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
+        except Exception as e:
+            logging.error(f"Error updating progress: {str(e)}", exc_info=True)
+        
     def _flatten_coordinates(self, coords):
         """Helper function to flatten a nested list of coordinates."""
         flat_coords = []
@@ -50,7 +61,6 @@ class GeoJSONHandler:
     def load_waco_boundary(self, boundary_type):
         """Loads the specified Waco boundary from a GeoJSON file."""
         try:
-            # Use GeoPandas to read the boundary file
             gdf = gpd.read_file(f"static/{boundary_type}.geojson")
             if not gdf.empty:
                 return gdf.geometry[0]  # Return the first geometry (polygon)
@@ -153,6 +163,7 @@ class GeoJSONHandler:
             monthly_files = [f for f in os.listdir('static') if f.startswith('historical_data_') and f.endswith('.geojson')]
             
             for file in monthly_files:
+                logging.debug(f"Processing file: {file}")
                 with open(f"static/{file}", "r") as f:
                     data = json.load(f)
                     month_features = data.get("features", [])
@@ -171,8 +182,10 @@ class GeoJSONHandler:
                     bbox = self._calculate_bounding_box(feature)
                     self.idx.insert(i, bbox)
 
+            await self.update_all_progress()
+
         except Exception as e:
-            logging.error(f"Unexpected error loading historical data: {str(e)}")
+            logging.error(f"Unexpected error loading historical data: {str(e)}", exc_info=True)
             raise
 
     async def update_historical_data(self, fetch_all=False):
@@ -182,7 +195,7 @@ class GeoJSONHandler:
             logging.info("Access token obtained")
 
             if fetch_all:
-                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)  # Adjust start date if needed
+                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
             elif self.historical_geojson_features:
                 latest_timestamp = max(
                     feature["properties"]["timestamp"]
@@ -224,9 +237,35 @@ class GeoJSONHandler:
                     bbox = self._calculate_bounding_box(feature)
                     self.idx.insert(len(self.historical_geojson_features) - len(new_features) + i, bbox)
 
+                if self.waco_analyzer:
+                    await asyncio.to_thread(self.waco_analyzer.update_progress, new_features)
+                else:
+                    logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
+
         except Exception as e:
             logging.error(f"An error occurred during historical data update: {e}", exc_info=True)
             raise
+
+    def get_progress(self):
+        return self.waco_analyzer.calculate_progress() if self.waco_analyzer else 0
+
+    def get_progress_geojson(self, waco_boundary='city_limits'):
+        return self.waco_analyzer.get_progress_geojson(waco_boundary) if self.waco_analyzer else None
+
+    async def get_recent_historical_data(self):
+        """Gets historical data from the last 24 hours."""
+        try:
+            yesterday = days_ago(1)
+            filtered_features = self.filter_geojson_features(
+                format_date(yesterday), 
+                format_date(datetime.now(timezone.utc)), 
+                filter_waco=False, 
+                waco_limits=None,
+            )
+            return filtered_features
+        except Exception as e:
+            logging.error(f"Error in get_recent_historical_data: {str(e)}", exc_info=True)
+            return []  # Return an empty list if there's an error
 
     async def _update_monthly_files(self, new_features):
         for feature in new_features:
@@ -335,18 +374,31 @@ class GeoJSONHandler:
 
         logging.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
-        
-    async def get_recent_historical_data(self):
-        """Gets historical data from the last 24 hours."""
+
+    async def update_progress(self):
+        """Updates progress based on recent historical data."""
         try:
-            yesterday = days_ago(1)
-            filtered_features = self.filter_geojson_features(
-                format_date(yesterday), 
-                format_date(datetime.now(timezone.utc)), 
-                filter_waco=False, 
-                waco_limits=None,
-            )
-            return filtered_features
+            recent_data = await self.get_recent_historical_data()
+            
+            def progress_callback(current, total):
+                logging.info(f"Progress update: {current}/{total} routes processed")
+            
+            if self.waco_analyzer:
+                await asyncio.to_thread(self.waco_analyzer.update_progress, recent_data, progress_callback)
+                logging.info("Progress updated successfully")
+            else:
+                logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
         except Exception as e:
-            logging.error(f"Error in get_recent_historical_data: {str(e)}", exc_info=True)
-            return []  # Return an empty list if there's an error
+            logging.error(f"Error updating progress: {str(e)}", exc_info=True)
+
+    async def initialize_data(self):
+        try:
+            logging.info("Starting to load historical data...")
+            await self.load_historical_data()
+            logging.info("Historical data loaded successfully.")
+            logging.info("Updating progress...")
+            await self.update_all_progress()
+            logging.info("Progress updated successfully.")
+        except Exception as e:
+            logging.error(f"Error during data initialization: {str(e)}", exc_info=True)
+            raise

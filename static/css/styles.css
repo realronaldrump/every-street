@@ -625,3 +625,23 @@ button:disabled {
 .toggle-untraveled-btn:hover {
   background-color: var(--accent-hover);
 }
+
+#progress-container {
+  width: 100%;
+  background-color: #f0f0f0;
+  margin-top: 10px;
+}
+
+#progress-bar {
+  width: 0%;
+  height: 30px;
+  background-color: #4CAF50;
+  text-align: center;
+  line-height: 30px;
+  color: white;
+}
+
+#progress-text {
+  text-align: center;
+  margin-top: 5px;
+}

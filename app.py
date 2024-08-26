@@ -31,11 +31,11 @@ log_file = os.path.join(log_directory, "app.log")
 file_handler = RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5)
 file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.DEBUG)  # Changed to DEBUG for more detailed logs
 logging.getLogger().addHandler(file_handler)
 
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.WARNING)
+console_handler.setLevel(logging.DEBUG)  # Changed to DEBUG for more detailed logs
 console_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
 logging.getLogger().addHandler(console_handler)
 
@@ -53,6 +53,7 @@ def login_required(func):
         return await func(*args, **kwargs)
     return wrapper
 
+
 # Initialize Flask App
 app = Quart(__name__)
 app = cors(app)
@@ -64,18 +65,18 @@ app.historical_data_loaded = False
 app.historical_data_loading = False
 app.is_processing = False
 
-# Redis Configuration (for caching - optional)
+# Redis Configuration
 redis_url = os.getenv('REDIS_URL')
 if redis_url and redis_url.startswith(('redis://', 'rediss://', 'unix://')):
     try:
         redis_client = Redis.from_url(redis_url, socket_connect_timeout=5)
-        redis_client.ping()  # Test the connection
-        print("Redis connected successfully")
+        redis_client.ping()
+        logging.info("Redis connected successfully")
     except redis.exceptions.ConnectionError:
-        print("Warning: Redis is not available. Falling back to non-caching mode.")
+        logging.warning("Redis is not available. Falling back to non-caching mode.")
         redis_client = None
 else:
-    print("Redis URL not set or invalid. Running without Redis.")
+    logging.warning("Redis URL not set or invalid. Running without Redis.")
     redis_client = None
 
 # Initialize API Clients and Handlers
@@ -87,7 +88,7 @@ gpx_exporter = GPXExporter(geojson_handler)
 # Initialize WacoStreetsAnalyzer
 waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
 
-# Asynchronous Locks (for thread safety)
+# Asynchronous Locks
 historical_data_lock = asyncio.Lock()
 processing_lock = asyncio.Lock()
 live_route_lock = asyncio.Lock()
@@ -95,7 +96,7 @@ live_route_lock = asyncio.Lock()
 # Live Route Data File
 LIVE_ROUTE_DATA_FILE = "live_route_data.geojson"
 
-# Task Manager (for background tasks)
+# Task Manager
 class TaskManager:
     def __init__(self):
         self.tasks = set()
@@ -134,33 +135,37 @@ def save_live_route_data(data):
 
 # ------------------------------ ROUTES ------------------------------ #
 
-# Waco Streets Progress
-@app.route('/calculate_progress')
-async def calculate_progress():
-    progress = waco_analyzer.calculate_progress()
+@app.route('/progress')
+async def get_progress():
+    progress = geojson_handler.waco_analyzer.calculate_progress()
     return jsonify({'progress': progress})
 
 @app.route('/update_progress')
-async def update_progress():
-    recent_data = await geojson_handler.get_recent_historical_data()
-    
-    waco_analyzer.update_progress(recent_data)
-    progress = waco_analyzer.calculate_progress()
-    return jsonify({'progress': progress})
+async def update_progress(self):
+    """Updates progress based on recent historical data."""
+    try:
+        logging.info("Starting progress update...")
+        recent_data = await self.get_recent_historical_data()
+        logging.info(f"Retrieved {len(recent_data)} recent data points")
+        
+        if self.waco_analyzer:
+            # Add a timeout of 60 seconds (adjust as needed)
+            await asyncio.wait_for(self.waco_analyzer.update_progress(recent_data), timeout=60)
+            logging.info("Progress updated successfully")
+        else:
+            logging.warning("WacoStreetsAnalyzer not initialized. Skipping progress update.")
+        
+        logging.info("Progress update completed")
+    except asyncio.TimeoutError:
+        logging.error("Progress update timed out after 60 seconds")
+    except Exception as e:
+        logging.error(f"Error updating progress: {str(e)}", exc_info=True)
 
 @app.route('/untraveled_streets')
 async def get_untraveled_streets():
     waco_boundary = request.args.get("wacoBoundary", "city_limits")
-    
-    # Get the untraveled streets GeoJSON
-    geojson_data = waco_analyzer.get_progress_geojson() 
-
-    # Filter the streets by Waco boundary (if filter is applied)
-    if waco_boundary != 'none':
-        waco_limits = geojson_handler.load_waco_boundary(waco_boundary)
-        geojson_data = geojson_handler.filter_streets_by_boundary(geojson_data, waco_limits)
-
-    return jsonify(geojson_data)
+    progress_geojson = geojson_handler.get_progress_geojson(waco_boundary)
+    return jsonify(progress_geojson)
 
 # Bouncie API Routes
 @app.route("/latest_bouncie_data")
@@ -428,10 +433,24 @@ async def load_historical_data_background():
 
 @app.before_serving
 async def startup():
-    app.live_route_data = load_live_route_data()
-    app.task_manager.add_task(load_historical_data_background())
-    app.task_manager.add_task(poll_bouncie_api())
-    logging.info(f"Available routes: {app.url_map}")
+    logging.info("Starting application initialization...")
+    try:
+        app.live_route_data = load_live_route_data()
+        logging.info("Live route data loaded.")
+        
+        logging.info("Initializing historical data...")
+        await geojson_handler.initialize_data()
+        logging.info("Historical data initialized.")
+        
+        app.task_manager.add_task(poll_bouncie_api())
+        logging.info("Bouncie API polling task added.")
+        
+        logging.info(f"Available routes: {app.url_map}")
+        logging.info("Application initialization complete.")
+    except Exception as e:
+        logging.error(f"Error during startup: {str(e)}", exc_info=True)
+        raise  # Re-raise the exception to prevent the app from starting with incomplete initialization
+
 
 @app.after_serving
 async def shutdown():
@@ -439,12 +458,26 @@ async def shutdown():
 
 # ------------------------------ RUN APP ------------------------------ #
 
+def handle_exception(loop, context):
+    # context["message"] will always be there; but context["exception"] may not
+    msg = context.get("exception", context["message"])
+    logging.error(f"Caught exception: {msg}")
+    logging.info("Shutting down...")
+    asyncio.create_task(shutdown())
+
 if __name__ == "__main__":
-    # Create a new event loop and set it as the current event loop
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
-    hyper_config = HyperConfig()
-    hyper_config.bind = ["0.0.0.0:8080"]
-    hyper_config.workers = 1
-    asyncio.run(serve(app, hyper_config))
+    async def run_app():
+        logging.info("Setting up Hypercorn configuration...")
+        hyper_config = HyperConfig()
+        hyper_config.bind = ["0.0.0.0:8080"]
+        hyper_config.workers = 1
+        logging.info("Starting Hypercorn server...")
+        try:
+            await serve(app, hyper_config)
+        except Exception as e:
+            logging.error(f"Error starting Hypercorn server: {str(e)}", exc_info=True)
+            raise
+
+    logging.info("Starting application...")
+    asyncio.run(run_app())
+    logging.info("Application has shut down.")

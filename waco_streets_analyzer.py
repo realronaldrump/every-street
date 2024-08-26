@@ -1,6 +1,6 @@
 import logging
 import geopandas as gpd
-from shapely.geometry import LineString, MultiLineString, Point
+from shapely.geometry import LineString, Point
 from shapely.ops import nearest_points
 
 # Configure logging 
