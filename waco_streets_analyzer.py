@@ -64,6 +64,13 @@ class WacoStreetsAnalyzer:
         if len(nearby_streets) == 0:
             return None
 
+        # Filter to ensure all items are geometries
+        nearby_streets = [street for street in nearby_streets if isinstance(street, LineString)]
+        if not nearby_streets:
+            logging.warning(f"No valid streets found near point {point}.")
+            return None
+
+        # Calculate distances only for valid geometries
         distances = np.array([street.distance(point) for street in nearby_streets])
         nearest_index = np.argmin(distances)
         return nearby_streets[nearest_index]
@@ -78,7 +85,11 @@ class WacoStreetsAnalyzer:
                     continue
                 snapped_segment = self._snap_point_to_segment(point)
                 if snapped_segment is not None:
-                    traveled_segments.add(self.segments_gdf.index[self.segments_gdf.geometry == snapped_segment][0])
+                    segment_idx = self.segments_gdf.index[self.segments_gdf.geometry == snapped_segment]
+                    if not segment_idx.empty:
+                        traveled_segments.add(segment_idx[0])
+                    else:
+                        logging.warning(f"Segment not found for snapped segment: {snapped_segment}")
         return traveled_segments
 
     def update_progress(self, new_routes, progress_callback=None):
