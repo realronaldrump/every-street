@@ -17,6 +17,18 @@ setup_logging()
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+def process_chunk(chunk_info, analyzer, progress_callback, new_routes):
+    chunk_index, chunk = chunk_info
+    traveled_segments = set()
+
+    for i, route in enumerate(chunk):
+        traveled_segments.update(analyzer._process_route(route))
+        if progress_callback and (i + 1) % 10 == 0:  # Log progress every 10 routes
+            progress = ((chunk_index * len(chunk) + i + 1) / len(new_routes)) * 100
+            progress_callback(chunk_index * len(chunk) + i + 1, len(new_routes))
+
+    return traveled_segments
+
 class WacoStreetsAnalyzer:
     def __init__(self, waco_streets_file, snap_distance=0.01):
         logger.info("Initializing WacoStreetsAnalyzer...")
@@ -29,11 +41,8 @@ class WacoStreetsAnalyzer:
         self.waco_box = None
 
         self._process_streets_into_segments()
-
-        # Reproject to a suitable projected CRS before calculating lengths
         self.segments_df = self.segments_df.to_crs('EPSG:4326')
         self.segments_df['length'] = self.segments_df.geometry.length
-
         self._create_spatial_index()
 
         logger.info(f"Processed {len(self.segments_df)} segments from {len(self.streets_gdf)} streets.")
@@ -50,12 +59,10 @@ class WacoStreetsAnalyzer:
                     'name': street['name'],
                     'segment_id': f"{street['street_id']}_{i}"
                 })
-        # Make sure to reproject after processing streets into segments
         self.segments_df = gpd.GeoDataFrame(segments, crs=self.streets_gdf.crs)
         self.segments_df = self.segments_df.to_crs('EPSG:4326')
         self.segments_df['length'] = self.segments_df.geometry.length
 
-        # Calculate the bounding box of Waco streets
         self.waco_bbox = self.streets_gdf.total_bounds
         self.waco_box = box(*self.waco_bbox)
 
@@ -96,30 +103,23 @@ class WacoStreetsAnalyzer:
     async def update_progress(self, new_routes, progress_callback=None):
         logger.info(f"Updating progress with {len(new_routes)} new routes...")
 
-        def process_chunk(chunk_info):
-            chunk_index, chunk = chunk_info
-            traveled_segments = set()
-
-            for i, route in enumerate(chunk):
-                traveled_segments.update(self._process_route(route))
-                if progress_callback and (i + 1) % 10 == 0:  # Log progress every 10 routes
-                    progress = ((chunk_index * len(chunk) + i + 1) / len(new_routes)) * 100
-                    progress_callback(chunk_index * len(chunk) + i + 1, len(new_routes))
-
-            return traveled_segments
-
         chunk_size = max(1, len(new_routes) // (cpu_count() - 1))
         chunks = [(i, new_routes[i:i + chunk_size]) for i in range(0, len(new_routes), chunk_size)]
 
         loop = asyncio.get_running_loop()
-        with Pool(processes=cpu_count() - 1) as pool:
-            results = await loop.run_in_executor(None, pool.map, process_chunk, chunks)
+        try:
+            with Pool(processes=cpu_count() - 1) as pool:
+                results = await loop.run_in_executor(None, pool.map, partial(process_chunk, analyzer=self, progress_callback=progress_callback, new_routes=new_routes), chunks)
+            
+            for result in results:
+                self.traveled_segments.update(result)
 
-        for result in results:
-            self.traveled_segments.update(result)
+            progress = self.calculate_progress()
+            logger.info(f"Progress update complete. Overall progress: {progress:.2f}%")
 
-        progress = self.calculate_progress()
-        logger.info(f"Progress update complete. Overall progress: {progress:.2f}%")
+        except Exception as e:
+            logger.error(f"Error during progress update: {e}")
+            raise
 
     def reset_progress(self):
         """Resets the progress by clearing all traveled segments."""
@@ -129,20 +129,20 @@ class WacoStreetsAnalyzer:
 
     def calculate_progress(self):
         """Calculates the overall progress."""
-        logging.info("Calculating progress...")
+        logger.info("Calculating progress...")
         total_length = self.segments_df['length'].sum()
         traveled_length = self.segments_df.loc[list(self.traveled_segments), 'length'].sum()
-        logging.info(f"Total length: {total_length}, Traveled length: {traveled_length}")
+        logger.info(f"Total length: {total_length}, Traveled length: {traveled_length}")
         if total_length == 0:
-            logging.warning("Total length is 0, cannot calculate progress")
+            logger.warning("Total length is 0, cannot calculate progress")
             return 0
         progress = (traveled_length / total_length) * 100
-        logging.info(f"Progress: {progress:.2f}%")
+        logger.info(f"Progress: {progress:.2f}%")
         return progress
 
     def get_progress_geojson(self, waco_boundary='city_limits'):
         """Generates GeoJSON for visualizing progress."""
-        logging.info("Generating progress GeoJSON...")
+        logger.info("Generating progress GeoJSON...")
 
         waco_limits = None
         if waco_boundary != "none":
@@ -164,12 +164,12 @@ class WacoStreetsAnalyzer:
                 }
             }
             features.append(feature)
-        logging.info("Progress GeoJSON generated.")
+        logger.info("Progress GeoJSON generated.")
         return {"type": "FeatureCollection", "features": features}
 
     def get_untraveled_streets(self, waco_boundary='city_limits'):
         """Returns a GeoDataFrame of untraveled streets."""
-        logging.info("Generating untraveled streets...")
+        logger.info("Generating untraveled streets...")
 
         waco_limits = None
         if waco_boundary != "none":
@@ -182,12 +182,12 @@ class WacoStreetsAnalyzer:
 
         untraveled_streets = untraveled_segments.dissolve(by='street_id')
 
-        logging.info(f"Found {len(untraveled_streets)} untraveled streets.")
+        logger.info(f"Found {len(untraveled_streets)} untraveled streets.")
         return untraveled_streets
 
     def analyze_coverage(self, waco_boundary='city_limits'):
         """Analyzes the coverage of traveled streets."""
-        logging.info("Analyzing street coverage...")
+        logger.info("Analyzing street coverage...")
 
         waco_limits = None
         if waco_boundary != "none":
@@ -205,7 +205,7 @@ class WacoStreetsAnalyzer:
 
         coverage_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
 
-        logging.info(f"Street coverage analysis complete. {coverage_percentage:.2f}% of streets traveled.")
+        logger.info(f"Street coverage analysis complete. {coverage_percentage:.2f}% of streets traveled.")
         return {
             "total_streets": total_streets,
             "traveled_streets": traveled_streets,
@@ -214,7 +214,7 @@ class WacoStreetsAnalyzer:
 
     def get_street_network(self, waco_boundary='city_limits'):
         """Returns the entire street network as a GeoDataFrame."""
-        logging.info("Retrieving street network...")
+        logger.info("Retrieving street network...")
 
         waco_limits = None
         if waco_boundary != "none":
@@ -229,5 +229,5 @@ class WacoStreetsAnalyzer:
             self.segments_df.loc[list(self.traveled_segments), 'street_id']
         )
 
-        logging.info(f"Retrieved street network with {len(street_network)} streets.")
+        logger.info(f"Retrieved street network with {len(street_network)} streets.")
         return street_network
