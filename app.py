@@ -24,23 +24,21 @@ LOG_DIRECTORY = "logs"
 os.makedirs(LOG_DIRECTORY, exist_ok=True)
 log_file = os.path.join(LOG_DIRECTORY, "app.log")
 
-# Configure root logger
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    handlers=[
-                        RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5),
-                        logging.StreamHandler()
-                    ])
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler(log_file, maxBytes=10485760, backupCount=5),
+        logging.StreamHandler()
+    ]
+)
 
-# Get logger for this module
 logger = logging.getLogger(__name__)
-
 logger.info("Logging initialized")
 
 # Load environment variables
 load_dotenv()
 
-# Login Decorator
 def login_required(func):
     @functools.wraps(func)
     async def wrapper(*args, **kwargs):
@@ -115,25 +113,25 @@ def create_app():
     # Routes
     @app.route('/progress')
     async def get_progress():
-        progress = app.geojson_handler.waco_analyzer.calculate_progress()
-        return jsonify({'progress': progress})
+        coverage_analysis = await app.geojson_handler.update_waco_streets_progress()
+        return jsonify(coverage_analysis)
 
     @app.route("/update_progress", methods=["POST"])
     async def update_progress():
         async with app.progress_lock:
             try:
                 await app.geojson_handler.update_all_progress()
-                progress = app.geojson_handler.get_progress()
-                return jsonify({"progress": progress}), 200
+                coverage_analysis = await app.geojson_handler.update_waco_streets_progress()
+                return jsonify(coverage_analysis), 200
             except Exception as e:
                 logger.error(f"Error updating progress: {str(e)}", exc_info=True)
                 return jsonify({"error": f"Error updating progress: {str(e)}"}), 500
-            
+
     @app.route('/untraveled_streets')
     async def get_untraveled_streets():
         waco_boundary = request.args.get("wacoBoundary", "city_limits")
-        progress_geojson = app.geojson_handler.get_progress_geojson(waco_boundary)
-        return jsonify(progress_geojson)
+        untraveled_streets = app.geojson_handler.get_untraveled_streets(waco_boundary)
+        return jsonify(json.loads(untraveled_streets))
 
     @app.route("/latest_bouncie_data")
     async def get_latest_bouncie_data():
@@ -187,7 +185,7 @@ def create_app():
             )
 
             result = {"type": "FeatureCollection", "features": filtered_features, "total_features": len(filtered_features)}
-            
+
             return jsonify(result)
 
         except ValueError as e:
@@ -236,11 +234,11 @@ def create_app():
             gpx_data = await app.gpx_exporter.export_to_gpx(
                 format_date(start_date), format_date(end_date), filter_waco, waco_boundary
             )
-            
+
             if gpx_data is None:
                 logger.warning("No data found for GPX export")
                 return jsonify({"error": "No data found for the specified date range"}), 404
-            
+
             return Response(
                 gpx_data,
                 mimetype="application/gpx+xml",
@@ -269,7 +267,7 @@ def create_app():
         except Exception as e:
             logger.error(f"Error during location search: {e}")
             return jsonify({"error": "An error occurred during the search"}), 500
-        
+
     @app.route("/search_suggestions")
     async def search_suggestions():
         query = request.args.get("query")
@@ -325,7 +323,7 @@ def create_app():
         waco_boundary = request.args.get("wacoBoundary", "city_limits")
         streets_filter = request.args.get("filter", "all")
         streets_geojson = app.geojson_handler.get_waco_streets(waco_boundary, streets_filter)
-        return jsonify(streets_geojson)
+        return jsonify(json.loads(streets_geojson))
 
     @app.route("/login", methods=["GET", "POST"])
     async def login():
@@ -351,7 +349,7 @@ def create_app():
         async with app.historical_data_lock:
             return await render_template("index.html", today=today, historical_data_loaded=app.historical_data_loaded)
 
-# Async Tasks
+    # Async Tasks
     async def poll_bouncie_api():
         while True:
             try:
@@ -404,17 +402,16 @@ def create_app():
         try:
             app.live_route_data = load_live_route_data()
             logger.debug("Live route data loaded")
-            
+
             logger.info("Initializing historical data...")
-            await load_historical_data_background()  # Await the background task
+            await load_historical_data_background()
             logger.info("Historical data initialized")
-            
-            # Add the Bouncie API polling task only once
+
             if not hasattr(app, 'background_tasks_started'):
                 app.task_manager.add_task(poll_bouncie_api())
                 app.background_tasks_started = True
                 logger.debug("Bouncie API polling task added")
-            
+
             logger.debug(f"Available routes: {app.url_map}")
             logger.info("Application initialization complete")
         except Exception as e:
@@ -427,7 +424,6 @@ def create_app():
         try:
             await app.task_manager.cancel_all()
             logger.info("All tasks cancelled")
-            # Add any other cleanup operations here
         except Exception as e:
             logger.error(f"Error during shutdown: {str(e)}", exc_info=True)
         finally:

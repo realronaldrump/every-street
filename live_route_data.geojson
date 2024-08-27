@@ -11,6 +11,10 @@
                     [
                         -97.1284169,
                         31.5498608
+                    ],
+                    [
+                        -97.1283717,
+                        31.5498758
                     ]
                 ]
             },
@@ -8661,6 +8665,32 @@
             },
             "properties": {
                 "timestamp": 1724558952
+            }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    -97.1283717,
+                    31.5498758
+                ]
+            },
+            "properties": {
+                "timestamp": 1724717013
+            }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    -97.1283717,
+                    31.5498758
+                ]
+            },
+            "properties": {
+                "timestamp": 1724717013
             }
         }
     ]

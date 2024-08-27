@@ -1,11 +1,14 @@
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from geopy.distance import geodesic
 from bounciepy import AsyncRESTAPIClient
 from geopy.geocoders import Nominatim
 from dotenv import load_dotenv
 import os
+import aiohttp
+from logging_config import setup_logging
+setup_logging()
 
 load_dotenv()
 
@@ -17,6 +20,8 @@ VEHICLE_ID = os.getenv("VEHICLE_ID")
 DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 
 ENABLE_GEOCODING = True
+
+logger = logging.getLogger(__name__)
 
 class BouncieAPI:
     def __init__(self):
@@ -34,14 +39,14 @@ class BouncieAPI:
             await self.client.get_access_token()
             vehicle_data = await self.client.get_vehicle_by_imei(imei=DEVICE_IMEI)
             if not vehicle_data or "stats" not in vehicle_data:
-                logging.error("No vehicle data or stats found in Bouncie response")
+                logger.error("No vehicle data or stats found in Bouncie response")
                 return None
 
             stats = vehicle_data["stats"]
             location = stats.get("location")
 
             if not location:
-                logging.error("No location data found in Bouncie stats")
+                logger.error("No location data found in Bouncie stats")
                 return None
 
             location_address = (
@@ -56,7 +61,7 @@ class BouncieAPI:
 
             battery_state = self._get_battery_state(stats["battery"]["status"])
 
-            logging.info(
+            logger.info(
                 f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}"
             )
             return {
@@ -69,7 +74,7 @@ class BouncieAPI:
                 "address": location_address,
             }
         except Exception as e:
-            logging.error(f"An error occurred while fetching live data: {e}")
+            logger.error(f"An error occurred while fetching live data: {e}")
             return None
 
     async def reverse_geocode(self, lat, lon, retries=3):
@@ -83,7 +88,7 @@ class BouncieAPI:
                 else:
                     return "N/A"
             except Exception as e:
-                logging.error(
+                logger.error(
                     f"Reverse geocoding attempt {attempt + 1} failed with error: {e}"
                 )
                 if attempt < retries - 1:
@@ -97,10 +102,10 @@ class BouncieAPI:
 
         async with session.get(summary_url, headers=headers) as response:
             if response.status == 200:
-                logging.info(f"Successfully fetched data for {date}")
+                logger.info(f"Successfully fetched data for {date}")
                 return await response.json()
             else:
-                logging.error(f"Error fetching data for {date}. Status: {response.status}")
+                logger.error(f"Error fetching data for {date}. Status: {response.status}")
                 return None
 
     async def get_trip_metrics(self):
@@ -118,7 +123,7 @@ class BouncieAPI:
             "end_time": self._format_datetime(end_time),
         }
 
-        logging.info(f"Returning trip metrics: {formatted_metrics}")
+        logger.info(f"Returning trip metrics: {formatted_metrics}")
         return formatted_metrics
 
     def _parse_timestamp(self, timestamp_iso):
@@ -126,7 +131,7 @@ class BouncieAPI:
             timestamp_dt = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
             return int(timestamp_dt.timestamp())
         except Exception as e:
-            logging.error(f"Error converting timestamp: {e}")
+            logger.error(f"Error converting timestamp: {e}")
             return None
 
     def _get_battery_state(self, bouncie_status):
@@ -182,3 +187,24 @@ class BouncieAPI:
 
     def _format_datetime(self, timestamp):
         return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "N/A"
+
+    async def fetch_historical_data(self, start_date, end_date):
+        try:
+            await self.client.get_access_token()
+            headers = {
+                "Accept": "application/json",
+                "Authorization": self.client.access_token,
+            }
+            async with aiohttp.ClientSession() as session:
+                tasks = []
+                current_date = start_date
+                while current_date <= end_date:
+                    date_str = current_date.strftime("%Y-%m-%d")
+                    tasks.append(self.fetch_trip_data(session, VEHICLE_ID, date_str, headers))
+                    current_date += timedelta(days=1)
+
+                results = await asyncio.gather(*tasks)
+                return [result for result in results if result]
+        except Exception as e:
+            logger.error(f"Error fetching historical data: {e}")
+            return []
