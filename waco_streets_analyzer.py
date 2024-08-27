@@ -8,7 +8,9 @@ from functools import partial
 import numpy as np
 from shapely.ops import unary_union
 import json
+import asyncio
 from logging_config import setup_logging
+
 setup_logging()
 
 # Configure logging
@@ -25,7 +27,7 @@ class WacoStreetsAnalyzer:
         self.spatial_index = None
         self.waco_bbox = None
         self.waco_box = None
-        
+
         self._process_streets_into_segments()
 
         # Reproject to a suitable projected CRS before calculating lengths
@@ -91,15 +93,27 @@ class WacoStreetsAnalyzer:
                     traveled_segments.update(intersecting_segments.index)
         return traveled_segments
 
-    def update_progress(self, new_routes, progress_callback=None):
+    async def update_progress(self, new_routes, progress_callback=None):
         logger.info(f"Updating progress with {len(new_routes)} new routes...")
 
-        with Pool(processes=cpu_count() - 1) as pool:
-            chunk_size = max(1, len(new_routes) // (cpu_count() - 10))
-            chunks = [new_routes[i:i + chunk_size] for i in range(0, len(new_routes), chunk_size)]
+        def process_chunk(chunk_info):
+            chunk_index, chunk = chunk_info
+            traveled_segments = set()
 
-            process_chunk_partial = partial(self._process_chunk, total_routes=len(new_routes), progress_callback=progress_callback)
-            results = pool.map(process_chunk_partial, enumerate(chunks))
+            for i, route in enumerate(chunk):
+                traveled_segments.update(self._process_route(route))
+                if progress_callback and (i + 1) % 10 == 0:  # Log progress every 10 routes
+                    progress = ((chunk_index * len(chunk) + i + 1) / len(new_routes)) * 100
+                    progress_callback(chunk_index * len(chunk) + i + 1, len(new_routes))
+
+            return traveled_segments
+
+        chunk_size = max(1, len(new_routes) // (cpu_count() - 1))
+        chunks = [(i, new_routes[i:i + chunk_size]) for i in range(0, len(new_routes), chunk_size)]
+
+        loop = asyncio.get_running_loop()
+        with Pool(processes=cpu_count() - 1) as pool:
+            results = await loop.run_in_executor(None, pool.map, process_chunk, chunks)
 
         for result in results:
             self.traveled_segments.update(result)
@@ -107,17 +121,11 @@ class WacoStreetsAnalyzer:
         progress = self.calculate_progress()
         logger.info(f"Progress update complete. Overall progress: {progress:.2f}%")
 
-    def _process_chunk(self, chunk_info, total_routes, progress_callback=None):
-        chunk_index, chunk = chunk_info
-        traveled_segments = set()
-
-        for i, route in enumerate(chunk):
-            traveled_segments.update(self._process_route(route))
-            if progress_callback and (i + 1) % 10 == 0:  # Log progress every 10 routes
-                progress = ((chunk_index * len(chunk) + i + 1) / total_routes) * 100
-                progress_callback(chunk_index * len(chunk) + i + 1, total_routes)
-
-        return traveled_segments
+    def reset_progress(self):
+        """Resets the progress by clearing all traveled segments."""
+        logger.info("Resetting progress...")
+        self.traveled_segments.clear()
+        logger.info("Progress has been reset.")
 
     def calculate_progress(self):
         """Calculates the overall progress."""
@@ -168,12 +176,12 @@ class WacoStreetsAnalyzer:
             waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
 
         untraveled_segments = self.segments_df[~self.segments_df.index.isin(self.traveled_segments)]
-        
+
         if waco_limits is not None:
             untraveled_segments = untraveled_segments[untraveled_segments.intersects(waco_limits)]
 
         untraveled_streets = untraveled_segments.dissolve(by='street_id')
-        
+
         logging.info(f"Found {len(untraveled_streets)} untraveled streets.")
         return untraveled_streets
 
@@ -187,7 +195,7 @@ class WacoStreetsAnalyzer:
 
         total_streets = len(self.streets_gdf)
         traveled_streets = len(set(self.segments_df.loc[list(self.traveled_segments), 'street_id']))
-        
+
         if waco_limits is not None:
             total_streets = self.streets_gdf[self.streets_gdf.intersects(waco_limits)].shape[0]
             traveled_streets = len(set(self.segments_df[
@@ -213,7 +221,7 @@ class WacoStreetsAnalyzer:
             waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
 
         street_network = self.streets_gdf.copy()
-        
+
         if waco_limits is not None:
             street_network = street_network[street_network.intersects(waco_limits)]
 
@@ -223,9 +231,3 @@ class WacoStreetsAnalyzer:
 
         logging.info(f"Retrieved street network with {len(street_network)} streets.")
         return street_network
-    
-    def reset_progress(self):
-        """Resets the progress by clearing all traveled segments."""
-        logger.info("Resetting progress...")
-        self.traveled_segments.clear()
-        logger.info("Progress has been reset.")
