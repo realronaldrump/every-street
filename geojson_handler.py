@@ -332,14 +332,21 @@ class GeoJSONHandler:
             raise
 
     def get_waco_streets(self, waco_boundary, streets_filter='all'):
-        street_network = self.waco_analyzer.get_street_network(waco_boundary)
-        
-        if streets_filter == 'traveled':
-            street_network = street_network[street_network['traveled']]
-        elif streets_filter == 'untraveled':
-            street_network = street_network[~street_network['traveled']]
+        try:
+            logger.info(f"Getting Waco streets: boundary={waco_boundary}, filter={streets_filter}")
+            street_network = self.waco_analyzer.get_street_network(waco_boundary)
+            logger.info(f"Total streets before filtering: {len(street_network)}")
 
-        return street_network.to_json()
+            if streets_filter == 'traveled':
+                street_network = street_network[street_network['traveled']]
+            elif streets_filter == 'untraveled':
+                street_network = street_network[~street_network['traveled']]
+
+            logger.info(f"Streets after filtering: {len(street_network)}")
+            return street_network.to_json()
+        except Exception as e:
+            logger.error(f"Error in get_waco_streets: {str(e)}", exc_info=True)
+            raise
 
     def get_untraveled_streets(self, waco_boundary):
         return self.waco_analyzer.get_untraveled_streets(waco_boundary).to_json()
@@ -347,8 +354,14 @@ class GeoJSONHandler:
     async def update_waco_streets_progress(self):
         try:
             coverage_analysis = self.waco_analyzer.analyze_coverage()
-            logger.info(f"Updated Waco streets progress: {coverage_analysis['coverage_percentage']:.2f}%")
+            logging.info(f"Raw coverage analysis: {coverage_analysis}")
             return coverage_analysis
         except Exception as e:
-            logger.error(f"Error updating Waco streets progress: {str(e)}", exc_info=True)
+            logging.error(f"Error updating Waco streets progress: {str(e)}", exc_info=True)
             return None
+    
+    def get_all_routes(self):
+        """ Returns all historical GeoJSON features (routes). """
+
+        logger.info(f"Retrieving all routes. Total features: {len(self.historical_geojson_features)}")
+        return self.historical_geojson_features

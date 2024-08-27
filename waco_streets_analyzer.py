@@ -7,6 +7,7 @@ from multiprocessing import Pool, cpu_count
 from functools import partial
 import numpy as np
 from shapely.ops import unary_union
+import json
 from logging_config import setup_logging
 setup_logging()
 
@@ -15,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 class WacoStreetsAnalyzer:
-    def __init__(self, waco_streets_file, snap_distance=0.001):
+    def __init__(self, waco_streets_file, snap_distance=0.01):
         logger.info("Initializing WacoStreetsAnalyzer...")
         self.streets_gdf = gpd.read_file(waco_streets_file)
         self.snap_distance = snap_distance
@@ -28,7 +29,7 @@ class WacoStreetsAnalyzer:
         self._process_streets_into_segments()
 
         # Reproject to a suitable projected CRS before calculating lengths
-        self.segments_df = self.segments_df.to_crs('EPSG:32614')
+        self.segments_df = self.segments_df.to_crs('EPSG:4326')
         self.segments_df['length'] = self.segments_df.geometry.length
 
         self._create_spatial_index()
@@ -49,7 +50,7 @@ class WacoStreetsAnalyzer:
                 })
         # Make sure to reproject after processing streets into segments
         self.segments_df = gpd.GeoDataFrame(segments, crs=self.streets_gdf.crs)
-        self.segments_df = self.segments_df.to_crs('EPSG:32614')
+        self.segments_df = self.segments_df.to_crs('EPSG:4326')
         self.segments_df['length'] = self.segments_df.geometry.length
 
         # Calculate the bounding box of Waco streets
@@ -94,7 +95,7 @@ class WacoStreetsAnalyzer:
         logger.info(f"Updating progress with {len(new_routes)} new routes...")
 
         with Pool(processes=cpu_count() - 1) as pool:
-            chunk_size = max(1, len(new_routes) // (cpu_count() - 1))
+            chunk_size = max(1, len(new_routes) // (cpu_count() - 10))
             chunks = [new_routes[i:i + chunk_size] for i in range(0, len(new_routes), chunk_size)]
 
             process_chunk_partial = partial(self._process_chunk, total_routes=len(new_routes), progress_callback=progress_callback)
@@ -123,6 +124,10 @@ class WacoStreetsAnalyzer:
         logging.info("Calculating progress...")
         total_length = self.segments_df['length'].sum()
         traveled_length = self.segments_df.loc[list(self.traveled_segments), 'length'].sum()
+        logging.info(f"Total length: {total_length}, Traveled length: {traveled_length}")
+        if total_length == 0:
+            logging.warning("Total length is 0, cannot calculate progress")
+            return 0
         progress = (traveled_length / total_length) * 100
         logging.info(f"Progress: {progress:.2f}%")
         return progress
@@ -218,3 +223,9 @@ class WacoStreetsAnalyzer:
 
         logging.info(f"Retrieved street network with {len(street_network)} streets.")
         return street_network
+    
+    def reset_progress(self):
+        """Resets the progress by clearing all traveled segments."""
+        logger.info("Resetting progress...")
+        self.traveled_segments.clear()
+        logger.info("Progress has been reset.")

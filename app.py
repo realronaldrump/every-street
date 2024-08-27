@@ -18,6 +18,8 @@ from geopy.geocoders import Nominatim
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
 from waco_streets_analyzer import WacoStreetsAnalyzer
 import multiprocessing
+from logging_config import setup_logging
+setup_logging()
 
 # Logging Setup
 LOG_DIRECTORY = "logs"
@@ -113,8 +115,15 @@ def create_app():
     # Routes
     @app.route('/progress')
     async def get_progress():
-        coverage_analysis = await app.geojson_handler.update_waco_streets_progress()
-        return jsonify(coverage_analysis)
+        try:
+            coverage_analysis = await app.geojson_handler.update_waco_streets_progress()
+            if coverage_analysis is None:
+                raise ValueError("Failed to update Waco streets progress")
+            logging.info(f"Progress update: {coverage_analysis}")
+            return jsonify(coverage_analysis)
+        except Exception as e:
+            logging.error(f"Error in get_progress: {str(e)}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
 
     @app.route("/update_progress", methods=["POST"])
     async def update_progress():
@@ -320,10 +329,47 @@ def create_app():
 
     @app.route('/waco_streets')
     async def get_waco_streets():
-        waco_boundary = request.args.get("wacoBoundary", "city_limits")
-        streets_filter = request.args.get("filter", "all")
-        streets_geojson = app.geojson_handler.get_waco_streets(waco_boundary, streets_filter)
-        return jsonify(json.loads(streets_geojson))
+        try:
+            waco_boundary = request.args.get("wacoBoundary", "city_limits")
+            streets_filter = request.args.get("filter", "all")
+            logging.info(f"Fetching Waco streets: boundary={waco_boundary}, filter={streets_filter}")
+            streets_geojson = app.geojson_handler.get_waco_streets(waco_boundary, streets_filter)
+            streets_data = json.loads(streets_geojson)
+            logging.info(f"Returning {len(streets_data['features'])} street features")
+            return jsonify(streets_data)
+        except Exception as e:
+            logging.error(f"Error in get_waco_streets: {str(e)}", exc_info=True)
+            return jsonify({"error": str(e)}), 500
+
+
+    @app.route("/reset_progress", methods=["POST"])
+    @login_required
+    async def reset_progress():
+        async with app.processing_lock:
+            if app.is_processing:
+                return jsonify({"error": "Another process is already running"}), 429
+
+            try:
+                app.is_processing = True
+                logger.info("Starting progress reset process")
+                
+                # Reset the progress in the WacoStreetsAnalyzer
+                app.waco_analyzer.reset_progress()
+                
+                # Recalculate the progress using all historical data
+                all_routes = app.geojson_handler.get_all_routes()
+                await app.waco_analyzer.update_progress(all_routes)
+                
+                # Update the progress file
+                await app.geojson_handler.update_all_progress()
+                
+                logger.info("Progress reset and recalculated successfully")
+                return jsonify({"message": "Progress has been reset and recalculated successfully!"}), 200
+            except Exception as e:
+                logger.error(f"An error occurred during the progress reset process: {e}")
+                return jsonify({"error": f"An error occurred: {str(e)}"}), 500
+            finally:
+                app.is_processing = False
 
     @app.route("/login", methods=["GET", "POST"])
     async def login():
