@@ -29,7 +29,7 @@ def process_chunk(chunk_info, analyzer, progress_callback, new_routes):
     return traveled_segments
 
 class WacoStreetsAnalyzer:
-    def __init__(self, waco_streets_file, snap_distance=1):
+    def __init__(self, waco_streets_file, snap_distance=0.0001):
         logger.info("Initializing WacoStreetsAnalyzer...")
         try:
             self.streets_gdf = gpd.read_file(waco_streets_file)
