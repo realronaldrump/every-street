@@ -532,9 +532,10 @@ async def shutdown_app(loop):
     await asyncio.gather(*tasks, return_exceptions=True)
     loop.stop()
 
-# Main
+app = create_app()
+
+# Main function
 def main():
-    app = create_app()
     return app
 
 if __name__ == "__main__":
@@ -542,7 +543,6 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
     async def run_app():
-        app = main()
         config = HyperConfig()
         config.bind = ["0.0.0.0:8080"]
         config.workers = 1
