@@ -3,14 +3,13 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-from datetime import datetime, timedelta, timezone
 import functools
+from datetime import datetime, timezone
 from quart import Quart, render_template, jsonify, request, Response, redirect, url_for, session
 from quart_cors import cors
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HyperConfig
 from dotenv import load_dotenv
-from redis import Redis
 from bouncie_api import BouncieAPI
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
@@ -18,8 +17,6 @@ from geopy.geocoders import Nominatim
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
 from waco_streets_analyzer import WacoStreetsAnalyzer
 import multiprocessing
-from logging_config import setup_logging
-setup_logging()
 
 # Logging Setup
 LOG_DIRECTORY = "logs"
@@ -115,15 +112,16 @@ def create_app():
     # Routes
     @app.route('/progress')
     async def get_progress():
-        try:
-            coverage_analysis = await app.geojson_handler.update_waco_streets_progress()
-            if coverage_analysis is None:
-                raise ValueError("Failed to update Waco streets progress")
-            logging.info(f"Progress update: {coverage_analysis}")
-            return jsonify(coverage_analysis)
-        except Exception as e:
-            logging.error(f"Error in get_progress: {str(e)}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
+        async with app.progress_lock:
+            try:
+                coverage_analysis = await app.geojson_handler.update_waco_streets_progress()
+                if coverage_analysis is None:
+                    raise ValueError("Failed to update Waco streets progress")
+                logging.info(f"Progress update: {coverage_analysis}")
+                return jsonify(coverage_analysis)
+            except Exception as e:
+                logging.error(f"Error in get_progress: {str(e)}", exc_info=True)
+                return jsonify({"error": str(e)}), 500
 
     @app.route("/update_progress", methods=["POST"])
     async def update_progress():
@@ -165,44 +163,45 @@ def create_app():
 
     @app.route("/historical_data")
     async def get_historical_data():
-        try:
-            start_date = request.args.get("startDate", "2020-01-01")
-            end_date = request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-            filter_waco = request.args.get("filterWaco", "false").lower() == "true"
-            waco_boundary = request.args.get("wacoBoundary", "city_limits")
-            bounds_str = request.args.get("bounds", None)
+        async with app.historical_data_lock:
+            try:
+                start_date = request.args.get("startDate", "2020-01-01")
+                end_date = request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
+                filter_waco = request.args.get("filterWaco", "false").lower() == "true"
+                waco_boundary = request.args.get("wacoBoundary", "city_limits")
+                bounds_str = request.args.get("bounds", None)
 
-            logger.info(f"Received request for historical data: start_date={start_date}, end_date={end_date}, filter_waco={filter_waco}, waco_boundary={waco_boundary}")
+                logger.info(f"Received request for historical data: start_date={start_date}, end_date={end_date}, filter_waco={filter_waco}, waco_boundary={waco_boundary}")
 
-            bounds = None
-            if bounds_str:
-                try:
-                    bounds = [float(x) for x in bounds_str.split(",")]
-                except ValueError:
-                    return jsonify({"error": "Invalid bounds format"}), 400
+                bounds = None
+                if bounds_str:
+                    try:
+                        bounds = [float(x) for x in bounds_str.split(",")]
+                    except ValueError:
+                        return jsonify({"error": "Invalid bounds format"}), 400
 
-            waco_limits = None
-            if filter_waco and waco_boundary != "none":
-                waco_limits = app.geojson_handler.load_waco_boundary(waco_boundary)
+                waco_limits = None
+                if filter_waco and waco_boundary != "none":
+                    waco_limits = app.geojson_handler.load_waco_boundary(waco_boundary)
 
-            filtered_features = app.geojson_handler.filter_geojson_features(
-                start_date,
-                end_date,
-                filter_waco,
-                waco_limits,
-                bounds=bounds
-            )
+                filtered_features = await app.geojson_handler.filter_geojson_features(
+                    start_date,
+                    end_date,
+                    filter_waco,
+                    waco_limits,
+                    bounds=bounds
+                )
 
-            result = {"type": "FeatureCollection", "features": filtered_features, "total_features": len(filtered_features)}
+                result = {"type": "FeatureCollection", "features": filtered_features, "total_features": len(filtered_features)}
 
-            return jsonify(result)
+                return jsonify(result)
 
-        except ValueError as e:
-            logger.error(f"Error parsing date: {str(e)}")
-            return jsonify({"error": f"Invalid date format: {str(e)}"}), 400
-        except Exception as e:
-            logger.error(f"Error filtering historical data: {str(e)}", exc_info=True)
-            return jsonify({"error": f"Error filtering historical data: {str(e)}"}), 500
+            except ValueError as e:
+                logger.error(f"Error parsing date: {str(e)}")
+                return jsonify({"error": f"Invalid date format: {str(e)}"}), 400
+            except Exception as e:
+                logger.error(f"Error filtering historical data: {str(e)}", exc_info=True)
+                return jsonify({"error": f"Error filtering historical data: {str(e)}"}), 500
 
     @app.route("/live_data")
     async def get_live_data():
@@ -341,7 +340,6 @@ def create_app():
             logging.error(f"Error in get_waco_streets: {str(e)}", exc_info=True)
             return jsonify({"error": str(e)}), 500
 
-
     @app.route("/reset_progress", methods=["POST"])
     @login_required
     async def reset_progress():
@@ -352,17 +350,17 @@ def create_app():
             try:
                 app.is_processing = True
                 logger.info("Starting progress reset process")
-                
+
                 # Reset the progress in the WacoStreetsAnalyzer
                 app.waco_analyzer.reset_progress()
-                
+
                 # Recalculate the progress using all historical data
                 all_routes = app.geojson_handler.get_all_routes()
                 await app.waco_analyzer.update_progress(all_routes)
-                
+
                 # Update the progress file
                 await app.geojson_handler.update_all_progress()
-                
+
                 logger.info("Progress reset and recalculated successfully")
                 return jsonify({"message": "Progress has been reset and recalculated successfully!"}), 200
             except Exception as e:
@@ -431,15 +429,18 @@ def create_app():
                 await asyncio.sleep(5)
 
     async def load_historical_data_background():
-        app.historical_data_loading = True
+        async with app.historical_data_lock:
+            app.historical_data_loading = True
         try:
             await app.geojson_handler.load_historical_data()
-            app.historical_data_loaded = True
+            async with app.historical_data_lock:
+                app.historical_data_loaded = True
             logger.info("Historical data loaded successfully")
         except Exception as e:
             logger.error(f"Error loading historical data: {str(e)}", exc_info=True)
         finally:
-            app.historical_data_loading = False
+            async with app.historical_data_lock:
+                app.historical_data_loading = False
 
     # App Lifecycle Events
     @app.before_serving

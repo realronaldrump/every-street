@@ -15,8 +15,6 @@ from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day
 from waco_streets_analyzer import WacoStreetsAnalyzer
 from functools import partial
 from multiprocessing import Pool, cpu_count
-from logging_config import setup_logging
-setup_logging()
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 
@@ -157,7 +155,7 @@ class GeoJSONHandler:
     async def update_historical_data(self, fetch_all=False):
         try:
             logger.info("Starting update_historical_data")
-            
+
             if fetch_all:
                 latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
             elif self.historical_geojson_features:
@@ -209,7 +207,7 @@ class GeoJSONHandler:
     async def get_recent_historical_data(self):
         try:
             yesterday = days_ago(1)
-            filtered_features = self.filter_geojson_features(
+            filtered_features = await self.filter_geojson_features(
                 format_date(yesterday), 
                 format_date(datetime.now(timezone.utc)), 
                 filter_waco=False, 
@@ -239,7 +237,7 @@ class GeoJSONHandler:
 
         logger.info(f"Updated monthly files with {len(new_features)} new features")
 
-    def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, features=None, bounds=None):
+    async def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, bounds=None):
         start_datetime = get_start_of_day(parse_date(start_date))
         end_datetime = get_end_of_day(parse_date(end_date))
 
@@ -247,34 +245,37 @@ class GeoJSONHandler:
 
         filtered_features = []
 
-        features_to_filter = features if features is not None else self.historical_geojson_features
-        logger.info(f"Total features before filtering: {len(features_to_filter)}")
-
         if bounds:
-            bounding_box = box(bounds[0], bounds[1], bounds[2], bounds[3])
+            bounding_box = box(*bounds)
 
-        for feature in features_to_filter:
-            timestamp = feature["properties"].get("timestamp")
-            if timestamp is not None:
-                try:
-                    timestamp = int(float(timestamp))
-                    route_datetime = datetime.fromtimestamp(timestamp, tz=timezone.utc)
-                    if start_datetime <= route_datetime <= end_datetime:
-                        if bounds:
-                            feature_geom = shape(feature['geometry'])
-                            if not feature_geom.intersects(bounding_box):
-                                continue
+        for month_year in self.monthly_data.keys():
+            month_start = datetime.strptime(month_year, "%Y-%m")
+            month_end = month_start + timedelta(days=32)
+            month_end = month_end.replace(day=1) - timedelta(days=1)
 
-                        if filter_waco and waco_limits:
-                            clipped_route = self.clip_route_to_boundary(feature, waco_limits)
-                            if clipped_route:
-                                filtered_features.append(clipped_route)
-                        else:
-                            filtered_features.append(feature)
-                except ValueError:
-                    logger.warning(f"Invalid timestamp for feature: {timestamp}")
-            else:
-                logger.warning(f"Feature has no timestamp")
+            if (month_start <= end_datetime and month_end >= start_datetime):
+                for feature in self.monthly_data[month_year]:
+                    timestamp = feature["properties"].get("timestamp")
+                    if timestamp is not None:
+                        try:
+                            timestamp = int(float(timestamp))
+                            route_datetime = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                            if start_datetime <= route_datetime <= end_datetime:
+                                if bounds:
+                                    feature_geom = shape(feature['geometry'])
+                                    if not feature_geom.intersects(bounding_box):
+                                        continue
+
+                                if filter_waco and waco_limits:
+                                    clipped_route = self.clip_route_to_boundary(feature, waco_limits)
+                                    if clipped_route:
+                                        filtered_features.append(clipped_route)
+                                else:
+                                    filtered_features.append(feature)
+                        except ValueError:
+                            logger.warning(f"Invalid timestamp for feature: {timestamp}")
+                    else:
+                        logger.warning(f"Feature has no timestamp")
 
         logger.info(f"Filtered {len(filtered_features)} features")
         return filtered_features
@@ -359,9 +360,7 @@ class GeoJSONHandler:
         except Exception as e:
             logging.error(f"Error updating Waco streets progress: {str(e)}", exc_info=True)
             return None
-    
-    def get_all_routes(self):
-        """ Returns all historical GeoJSON features (routes). """
 
+    def get_all_routes(self):
         logger.info(f"Retrieving all routes. Total features: {len(self.historical_geojson_features)}")
         return self.historical_geojson_features

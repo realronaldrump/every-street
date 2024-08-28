@@ -36,6 +36,7 @@ const searchBtn = document.getElementById('searchBtn');
 const exportToGPXBtn = document.getElementById('exportToGPXBtn');
 const clearDrawnShapesBtn = document.getElementById('clearDrawnShapesBtn');
 const suggestionsContainer = document.getElementById('searchSuggestions');
+const logoutBtn = document.getElementById('logoutBtn');
 
 let searchMarker;
 
@@ -43,7 +44,7 @@ let searchMarker;
 function showFeedback(message, type = 'info', duration = 5000) {
     const feedbackContainer = document.getElementById('feedback-container');
     const feedbackElement = document.createElement('div');
-    feedbackElement.className = `feedback ${type}`;
+    feedbackElement.className = `feedback ${type} animate__animated animate__fadeInDown`;
 
     const icon = document.createElement('span');
     icon.className = 'feedback-icon';
@@ -58,8 +59,9 @@ function showFeedback(message, type = 'info', duration = 5000) {
     feedbackContainer.appendChild(feedbackElement);
 
     setTimeout(() => {
-        feedbackElement.classList.add('fade-out');
-        setTimeout(() => feedbackElement.remove(), 500);
+        feedbackElement.classList.remove('animate__fadeInDown');
+        feedbackElement.classList.add('animate__fadeOutUp');
+        setTimeout(() => feedbackElement.remove(), 1000);
     }, duration);
 }
 
@@ -73,7 +75,7 @@ function handleBackgroundTask(taskFunction, feedbackMessage) {
 
         isProcessing = true;
         disableUI();
-        showFeedback(feedbackMessage, 'info');
+        showLoading(feedbackMessage);
 
         try {
             await taskFunction(...args);
@@ -83,6 +85,7 @@ function handleBackgroundTask(taskFunction, feedbackMessage) {
         } finally {
             isProcessing = false;
             enableUI();
+            hideLoading();
             checkQueuedTasks();
         }
     };
@@ -270,7 +273,7 @@ async function loadLiveRouteData() {
             // Add live marker at the last coordinate
             if (coordinates.length > 0) {
                 const lastCoord = coordinates[coordinates.length - 1];
-                liveMarker = L.marker([lastCoord[1], lastCoord[0]], {
+                liveMarker = createAnimatedMarker([lastCoord[1], lastCoord[0]], {
                     icon: L.divIcon({
                         className: 'blinking-marker',
                         iconSize: [20, 20],
@@ -333,6 +336,15 @@ async function updateProgress() {
         if (data.coverage_percentage !== undefined) {
             progressBar.style.width = `${data.coverage_percentage}%`;
             progressText.textContent = `${data.coverage_percentage.toFixed(2)}% of Waco Streets Traveled`;
+            
+            // Animate the progress update
+            progressBar.classList.add('animate__animated', 'animate__pulse');
+            progressText.classList.add('animate__animated', 'animate__bounce');
+            
+            setTimeout(() => {
+                progressBar.classList.remove('animate__animated', 'animate__pulse');
+                progressText.classList.remove('animate__animated', 'animate__bounce');
+            }, 1000);
         } else {
             console.error("Invalid progress data received");
         }
@@ -486,18 +498,18 @@ async function initializeApp() {
 }
 
 function updateLiveData(data) {
-    document.getElementById('lastUpdated').textContent = new Date(data.timestamp * 1000).toLocaleString();
-    document.getElementById('speed').textContent = `${data.speed} mph`;
-    document.getElementById('location').textContent = data.address ? data.address.split('<br>').join('\n') : 'Address not available';
+    animateStatUpdate('lastUpdated', new Date(data.timestamp * 1000).toLocaleString());
+    animateStatUpdate('speed', `${data.speed} mph`);
+    animateStatUpdate('location', data.address ? data.address.split('<br>').join('\n') : 'Address not available');
 
     const latLng = [data.latitude, data.longitude];
 
     if (liveMarker) {
         map.removeLayer(liveMarker);
     }
-    liveMarker = L.marker(latLng, {
+    liveMarker = createAnimatedMarker(latLng, {
         icon: L.divIcon({
-            className: 'blinking-marker',
+            className: 'blinking-marker animate__animated animate__pulse animate__infinite',
             iconSize: [20, 20],
             html: '<div style="background-color: blue; width: 100%; height: 100%; border-radius: 50%;"></div>'
         })
@@ -542,7 +554,7 @@ async function displayHistoricalData() {
 
     isLoadingHistoricalData = true;
     disableFilterButtons();
-    showFeedback('Loading historical data...', 'info');
+    showLoading('Loading historical data...');
 
     try {
         const startDateStr = startDateInput.value;
@@ -575,31 +587,37 @@ async function displayHistoricalData() {
         }).addTo(map);
 
         const totalDistance = calculateTotalDistance(data.features);
-        document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
+        animateStatUpdate('totalHistoricalDistance', `${totalDistance.toFixed(2)} miles`);
 
         showFeedback(`Displayed ${data.features.length} historical features`, 'success');
 
         if (data.features.length > 0) {
             map.fitBounds(historicalDataLayer.getBounds());
         }
+
+        // Animate the historical data layer
+        historicalDataLayer.eachLayer(function (layer) {
+            layer.getElement().classList.add('animate__animated', 'animate__fadeIn');
+        });
     } catch (error) {
         console.error('Error displaying historical data:', error);
         showFeedback(`Error loading historical data: ${error.message}. Please try again.`, 'error');
     } finally {
         isLoadingHistoricalData = false;
         enableFilterButtons();
+        hideLoading();
     }
 }
 
 function disableFilterButtons() {
-    ['#time-filters button', '#applyFilterBtn', '#filterWaco', '#startDateInput', '#endDateInput', '#wacoBoundarySelect']
+    ['#time-filters button', '#applyFilterBtn', '#filterWaco', '#startDate', '#endDate', '#wacoBoundarySelect']
         .forEach(selector => {
             document.querySelectorAll(selector).forEach(el => el.disabled = true);
         });
 }
 
 function enableFilterButtons() {
-    ['#time-filters button', '#applyFilterBtn', '#filterWaco', '#startDateInput', '#endDateInput', '#wacoBoundarySelect']
+    ['#time-filters button', '#applyFilterBtn', '#filterWaco', '#startDate', '#endDate', '#wacoBoundarySelect']
         .forEach(selector => {
             document.querySelectorAll(selector).forEach(el => el.disabled = false);
         });
@@ -621,7 +639,7 @@ async function updateLiveDataAndMetrics() {
 
         const metrics = await metricsResponse.json();
         ['totalDistance', 'totalTime', 'maxSpeed', 'startTime', 'endTime'].forEach(id => {
-            document.getElementById(id).textContent = metrics[id.toLowerCase()];
+            animateStatUpdate(id, metrics[id.toLowerCase()]);
         });
     } catch (error) {
         console.error('Error updating live data and metrics:', error);
@@ -637,6 +655,7 @@ function addRoutePopup(feature, layer) {
 
     const playbackButton = document.createElement('button');
     playbackButton.textContent = 'Play Route';
+    playbackButton.classList.add('animate__animated', 'animate__pulse');
     playbackButton.addEventListener('click', () => {
         if (feature.geometry.type === 'LineString' && feature.geometry.coordinates.length > 1) {
             startPlayback(feature.geometry.coordinates);
@@ -687,9 +706,9 @@ function startPlayback(coordinates) {
         weight: 4
     }).addTo(map);
 
-    playbackMarker = L.marker(L.latLng(coordinates[0][1], coordinates[0][0]), {
+    playbackMarker = createAnimatedMarker(L.latLng(coordinates[0][1], coordinates[0][0]), {
         icon: L.divIcon({
-            className: 'blinking-marker',
+            className: 'blinking-marker animate__animated animate__bounce',
             iconSize: [20, 20],
             html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
         })
@@ -714,6 +733,8 @@ function startPlayback(coordinates) {
 function togglePlayPause() {
     isPlaying = !isPlaying;
     playPauseBtn.textContent = isPlaying ? 'Pause' : 'Play';
+    playPauseBtn.classList.add('animate__animated', 'animate__pulse');
+    setTimeout(() => playPauseBtn.classList.remove('animate__animated', 'animate__pulse'), 1000);
 }
 
 function stopPlayback() {
@@ -738,6 +759,8 @@ function adjustPlaybackSpeed() {
         clearInterval(playbackAnimation);
         startPlayback(playbackPolyline.getLatLngs());
     }
+    speedValueSpan.classList.add('animate__animated', 'animate__rubberBand');
+    setTimeout(() => speedValueSpan.classList.remove('animate__animated', 'animate__rubberBand'), 1000);
 }
 
 function filterHistoricalDataByPolygon(polygon) {
@@ -826,7 +849,7 @@ function filterRoutesBy(period) {
 }
 
 async function exportToGPX() {
-    showFeedback('Preparing GPX export...', 'info');
+    showLoading('Preparing GPX export...');
     const startDate = startDateInput.value;
     const endDate = endDateInput.value;
     const filterWaco = filterWacoCheckbox.checked;
@@ -852,6 +875,8 @@ async function exportToGPX() {
     } catch (error) {
         console.error('Error exporting GPX:', error);
         showFeedback('Error exporting GPX. Please try again.', 'error');
+    } finally {
+        hideLoading();
     }
 }
 
@@ -878,7 +903,7 @@ function updateMapWithHistoricalData(data) {
     }
 
     const totalDistance = calculateTotalDistance(data.features);
-    document.getElementById('totalHistoricalDistance').textContent = `${totalDistance.toFixed(2)} miles`;
+    animateStatUpdate('totalHistoricalDistance', `${totalDistance.toFixed(2)} miles`);
 
     showFeedback(`Displayed ${data.features.length} historical features`, 'success');
 
@@ -890,6 +915,11 @@ function updateMapWithHistoricalData(data) {
             console.warn('Invalid bounds for historical data');
         }
     }
+
+    // Animate the historical data layer
+    historicalDataLayer.eachLayer(function (layer) {
+        layer.getElement().classList.add('animate__animated', 'animate__fadeIn');
+    });
 }
 
 async function checkHistoricalDataStatus() {
@@ -998,9 +1028,9 @@ function setupEventListeners() {
                     map.removeLayer(searchMarker);
                 }
 
-                searchMarker = L.marker([latitude, longitude], {
+                searchMarker = createAnimatedMarker([latitude, longitude], {
                     icon: L.divIcon({
-                        className: 'custom-marker',
+                        className: 'custom-marker animate__animated animate__bounceInDown',
                         iconSize: [30, 30],
                         html: '<div style="background-color: red; width: 100%; height: 100%; border-radius: 50%;"></div>'
                     })
@@ -1038,6 +1068,7 @@ function setupEventListeners() {
                 suggestions.forEach(suggestion => {
                     const suggestionElement = document.createElement('div');
                     suggestionElement.textContent = suggestion.address;
+                    suggestionElement.classList.add('animate__animated', 'animate__fadeIn');
                     suggestionElement.addEventListener('click', () => {
                         searchInput.value = suggestion.address;
                         suggestionsContainer.innerHTML = '';
@@ -1082,7 +1113,7 @@ function setupEventListeners() {
         console.log("Toggle untraveled streets button clicked");
         toggleUntraveledStreets();
     });
-    
+
     document.getElementById('toggleWacoStreetsBtn').addEventListener('click', () => {
         console.log("Toggle Waco streets button clicked");
         toggleWacoStreets();
@@ -1106,7 +1137,7 @@ function setupEventListeners() {
             throw new Error('Error resetting progress: ' + error.message);
         }
     }, 'Resetting progress...'));
-    
+
     document.getElementById('opacity-slider').addEventListener('input', function(e) {
         console.log("Opacity slider changed");
         wacoStreetsOpacity = parseFloat(e.target.value);
@@ -1165,6 +1196,10 @@ function setupEventListeners() {
             loadWacoStreets();
         }
     });
+
+    logoutBtn.addEventListener('click', () => {
+        window.location.href = '/logout';
+    });
 }
 
 function debounce(func, wait) {
@@ -1177,6 +1212,34 @@ function debounce(func, wait) {
         clearTimeout(timeout);
         timeout = setTimeout(later, wait);
     };
+}
+
+function showLoading(message = 'Loading...') {
+    document.querySelector('.loading-text').textContent = message;
+    document.getElementById('loadingOverlay').style.display = 'flex';
+}
+
+function hideLoading() {
+    document.getElementById('loadingOverlay').style.display = 'none';
+}
+
+function createAnimatedMarker(latLng, options = {}) {
+    const defaultIcon = L.divIcon({
+        className: 'custom-marker animate__animated animate__bounce',
+        html: '<div style="background-color: #007bff; width: 100%; height: 100%; border-radius: 50%;"></div>',
+        iconSize: [20, 20]
+    });
+
+    return L.marker(latLng, { icon: defaultIcon, ...options });
+}
+
+function animateStatUpdate(elementId, newValue) {
+    const element = document.getElementById(elementId);
+    element.classList.add('animate__animated', 'animate__flipInX');
+    element.textContent = newValue;
+    setTimeout(() => {
+        element.classList.remove('animate__animated', 'animate__flipInX');
+    }, 1000);
 }
 
 document.addEventListener('DOMContentLoaded', function() {

@@ -15,3 +15,5 @@ tqdm
 numpy
 aiofiles
 redis
+tenacity
+pydantic

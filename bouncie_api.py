@@ -7,8 +7,7 @@ from geopy.geocoders import Nominatim
 from dotenv import load_dotenv
 import os
 import aiohttp
-from logging_config import setup_logging
-setup_logging()
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 load_dotenv()
 
@@ -34,6 +33,7 @@ class BouncieAPI:
         self.geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
         self.live_trip_data = {"last_updated": datetime.now(timezone.utc), "data": []}
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def get_latest_bouncie_data(self):
         try:
             await self.client.get_access_token()
@@ -75,26 +75,23 @@ class BouncieAPI:
             }
         except Exception as e:
             logger.error(f"An error occurred while fetching live data: {e}")
-            return None
+            raise
 
-    async def reverse_geocode(self, lat, lon, retries=3):
-        for attempt in range(retries):
-            try:
-                location = await asyncio.get_event_loop().run_in_executor(
-                    None, lambda: self.geolocator.reverse((lat, lon), addressdetails=True)
-                )
-                if location:
-                    return self._format_address(location.raw["address"])
-                else:
-                    return "N/A"
-            except Exception as e:
-                logger.error(
-                    f"Reverse geocoding attempt {attempt + 1} failed with error: {e}"
-                )
-                if attempt < retries - 1:
-                    await asyncio.sleep(1)
-        return "N/A"
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    async def reverse_geocode(self, lat, lon):
+        try:
+            location = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: self.geolocator.reverse((lat, lon), addressdetails=True)
+            )
+            if location:
+                return self._format_address(location.raw["address"])
+            else:
+                return "N/A"
+        except Exception as e:
+            logger.error(f"Reverse geocoding failed with error: {e}")
+            raise
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def fetch_trip_data(self, session, vehicle_id, date, headers):
         start_time = f"{date}T00:00:00-05:00"
         end_time = f"{date}T23:59:59-05:00"
@@ -106,7 +103,7 @@ class BouncieAPI:
                 return await response.json()
             else:
                 logger.error(f"Error fetching data for {date}. Status: {response.status}")
-                return None
+                response.raise_for_status()
 
     async def get_trip_metrics(self):
         time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
@@ -188,6 +185,7 @@ class BouncieAPI:
     def _format_datetime(self, timestamp):
         return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "N/A"
 
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def fetch_historical_data(self, start_date, end_date):
         try:
             await self.client.get_access_token()
@@ -207,4 +205,4 @@ class BouncieAPI:
                 return [result for result in results if result]
         except Exception as e:
             logger.error(f"Error fetching historical data: {e}")
-            return []
+            raise
