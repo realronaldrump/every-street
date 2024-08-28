@@ -13,7 +13,6 @@ from logging_config import setup_logging
 
 setup_logging()
 
-# Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -32,22 +31,27 @@ def process_chunk(chunk_info, analyzer, progress_callback, new_routes):
 class WacoStreetsAnalyzer:
     def __init__(self, waco_streets_file, snap_distance=1):
         logger.info("Initializing WacoStreetsAnalyzer...")
-        self.streets_gdf = gpd.read_file(waco_streets_file)
-        self.snap_distance = snap_distance
-        self.traveled_segments = set()
-        self.segments_df = None
-        self.spatial_index = None
-        self.waco_bbox = None
-        self.waco_box = None
+        try:
+            self.streets_gdf = gpd.read_file(waco_streets_file)
+            self.snap_distance = snap_distance
+            self.traveled_segments = set()
+            self.segments_df = None
+            self.spatial_index = None
+            self.waco_bbox = None
+            self.waco_box = None
 
-        self._process_streets_into_segments()
-        self.segments_df = self.segments_df.to_crs('EPSG:4326')
-        self.segments_df['length'] = self.segments_df.geometry.length
-        self._create_spatial_index()
+            self._process_streets_into_segments()
+            self._create_spatial_index()
 
-        logger.info(f"Processed {len(self.segments_df)} segments from {len(self.streets_gdf)} streets.")
-
+            logger.info(f"Processed {len(self.segments_df)} segments from {len(self.streets_gdf)} streets.")
+        except Exception as e:
+            logger.error(f"Error initializing WacoStreetsAnalyzer: {str(e)}")
+            raise
     def _process_streets_into_segments(self):
+        # Project to a local UTM zone for accurate length calculations
+        utm_crs = self._get_utm_crs(self.streets_gdf)
+        self.streets_gdf = self.streets_gdf.to_crs(utm_crs)
+
         segments = []
         for idx, street in self.streets_gdf.iterrows():
             coords = list(street.geometry.coords)
@@ -59,12 +63,23 @@ class WacoStreetsAnalyzer:
                     'name': street['name'],
                     'segment_id': f"{street['street_id']}_{i}"
                 })
-        self.segments_df = gpd.GeoDataFrame(segments, crs=self.streets_gdf.crs)
-        self.segments_df = self.segments_df.to_crs('EPSG:4326')
+        self.segments_df = gpd.GeoDataFrame(segments, crs=utm_crs)
         self.segments_df['length'] = self.segments_df.geometry.length
+
+        # Project back to WGS84 for compatibility with other data
+        self.segments_df = self.segments_df.to_crs('EPSG:4326')
 
         self.waco_bbox = self.streets_gdf.total_bounds
         self.waco_box = box(*self.waco_bbox)
+
+    def _get_utm_crs(self, gdf):
+        # Determine the appropriate UTM zone based on the centroid of the data
+        bounds = gdf.total_bounds
+        lon = (bounds[0] + bounds[2]) / 2  # average of min and max longitude
+        lat = (bounds[1] + bounds[3]) / 2  # average of min and max latitude
+        utm_zone = int((lon + 180) / 6) + 1
+        hemisphere = 'north' if lat >= 0 else 'south'
+        return f'+proj=utm +zone={utm_zone} +{hemisphere} +datum=WGS84 +units=m +no_defs'
 
     def _create_spatial_index(self):
         self.spatial_index = index.Index()
@@ -110,7 +125,7 @@ class WacoStreetsAnalyzer:
         try:
             with Pool(processes=cpu_count() - 1) as pool:
                 results = await loop.run_in_executor(None, pool.map, partial(process_chunk, analyzer=self, progress_callback=progress_callback, new_routes=new_routes), chunks)
-            
+
             for result in results:
                 self.traveled_segments.update(result)
 
@@ -186,8 +201,9 @@ class WacoStreetsAnalyzer:
         return untraveled_streets
 
     def analyze_coverage(self, waco_boundary='city_limits'):
-        """Analyzes the coverage of traveled streets."""
         logger.info("Analyzing street coverage...")
+        logger.debug(f"Total traveled segments: {len(self.traveled_segments)}")
+        logger.debug(f"Total streets: {len(self.streets_gdf)}")
 
         waco_limits = None
         if waco_boundary != "none":
@@ -205,7 +221,9 @@ class WacoStreetsAnalyzer:
 
         coverage_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
 
-        logger.info(f"Street coverage analysis complete. {coverage_percentage:.2f}% of streets traveled.")
+        logger.debug(f"Traveled streets: {traveled_streets}")
+        logger.debug(f"Coverage percentage: {coverage_percentage}")
+
         return {
             "total_streets": total_streets,
             "traveled_streets": traveled_streets,

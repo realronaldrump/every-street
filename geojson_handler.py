@@ -32,10 +32,13 @@ class GeoJSONHandler:
     async def update_all_progress(self):
         try:
             logger.info("Updating progress for all historical data...")
-            await asyncio.to_thread(self.waco_analyzer.update_progress, self.historical_geojson_features)
-            logger.info("Progress updated successfully")
+            await self.waco_analyzer.update_progress(self.historical_geojson_features)
+            coverage = self.waco_analyzer.analyze_coverage()
+            logger.info(f"Progress updated successfully. Coverage: {coverage['coverage_percentage']:.2f}%")
+            return coverage
         except Exception as e:
             logger.error(f"Error updating progress: {str(e)}", exc_info=True)
+            raise
 
     def _flatten_coordinates(self, coords):
         flat_coords = []

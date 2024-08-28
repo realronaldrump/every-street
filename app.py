@@ -3,8 +3,8 @@ import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import json
-import functools
 from datetime import datetime, timezone
+import functools
 from quart import Quart, render_template, jsonify, request, Response, redirect, url_for, session
 from quart_cors import cors
 from hypercorn.asyncio import serve
@@ -17,6 +17,9 @@ from geopy.geocoders import Nominatim
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
 from waco_streets_analyzer import WacoStreetsAnalyzer
 import multiprocessing
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional
+from datetime import date
 
 # Logging Setup
 LOG_DIRECTORY = "logs"
@@ -46,6 +49,32 @@ def login_required(func):
         return await func(*args, **kwargs)
     return wrapper
 
+class DateRange(BaseModel):
+    start_date: date = Field(..., description="Start date of the range")
+    end_date: date = Field(..., description="End date of the range")
+
+    @field_validator('end_date')
+    def end_date_must_be_after_start_date(cls, v, info):
+        start_date = info.data.get('start_date')
+        if start_date and v < start_date:
+            raise ValueError('end_date must be after start_date')
+        return v
+
+class HistoricalDataParams(BaseModel):
+    date_range: DateRange
+    filter_waco: bool = Field(False, description="Whether to filter data to Waco area")
+    waco_boundary: str = Field("city_limits", description="Type of Waco boundary to use")
+    bounds: Optional[list] = Field(None, description="Bounding box for filtering data")
+
+    @field_validator('bounds')
+    def validate_bounds(cls, v):
+        if v is not None:
+            if len(v) != 4:
+                raise ValueError('bounds must be a list of 4 float values')
+            if not all(isinstance(x, (int, float)) for x in v):
+                raise ValueError('all values in bounds must be numbers')
+        return v
+
 def create_app():
     app = Quart(__name__)
     app = cors(app)
@@ -63,6 +92,7 @@ def create_app():
     app.bouncie_api = BouncieAPI()
     app.gpx_exporter = GPXExporter(app.geojson_handler)
     app.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
+    logger.info(f"Initialized WacoStreetsAnalyzer with {len(app.waco_analyzer.streets_gdf)} streets")
 
     # Asynchronous Locks
     app.historical_data_lock = asyncio.Lock()
@@ -88,6 +118,7 @@ def create_app():
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            self.tasks.clear()
 
     app.task_manager = TaskManager()
 
@@ -164,32 +195,32 @@ def create_app():
     @app.route("/historical_data")
     async def get_historical_data():
         async with app.historical_data_lock:
+            start_date = request.args.get("startDate") or "2020-01-01"
+            end_date = request.args.get("endDate") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
             try:
-                start_date = request.args.get("startDate", "2020-01-01")
-                end_date = request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-                filter_waco = request.args.get("filterWaco", "false").lower() == "true"
-                waco_boundary = request.args.get("wacoBoundary", "city_limits")
-                bounds_str = request.args.get("bounds", None)
+                params = HistoricalDataParams(
+                    date_range=DateRange(
+                        start_date=start_date,
+                        end_date=end_date
+                    ),
+                    filter_waco=request.args.get("filterWaco", "false").lower() == "true",
+                    waco_boundary=request.args.get("wacoBoundary", "city_limits"),
+                    bounds=[float(x) for x in request.args.get("bounds", "").split(",")] if request.args.get("bounds") else None
+                )
 
-                logger.info(f"Received request for historical data: start_date={start_date}, end_date={end_date}, filter_waco={filter_waco}, waco_boundary={waco_boundary}")
-
-                bounds = None
-                if bounds_str:
-                    try:
-                        bounds = [float(x) for x in bounds_str.split(",")]
-                    except ValueError:
-                        return jsonify({"error": "Invalid bounds format"}), 400
+                logger.info(f"Received request for historical data: {params}")
 
                 waco_limits = None
-                if filter_waco and waco_boundary != "none":
-                    waco_limits = app.geojson_handler.load_waco_boundary(waco_boundary)
+                if params.filter_waco and params.waco_boundary != "none":
+                    waco_limits = app.geojson_handler.load_waco_boundary(params.waco_boundary)
 
                 filtered_features = await app.geojson_handler.filter_geojson_features(
-                    start_date,
-                    end_date,
-                    filter_waco,
+                    params.date_range.start_date.isoformat(),
+                    params.date_range.end_date.isoformat(),
+                    params.filter_waco,
                     waco_limits,
-                    bounds=bounds
+                    bounds=params.bounds
                 )
 
                 result = {"type": "FeatureCollection", "features": filtered_features, "total_features": len(filtered_features)}
@@ -197,8 +228,8 @@ def create_app():
                 return jsonify(result)
 
             except ValueError as e:
-                logger.error(f"Error parsing date: {str(e)}")
-                return jsonify({"error": f"Invalid date format: {str(e)}"}), 400
+                logger.error(f"Error parsing parameters: {str(e)}")
+                return jsonify({"error": f"Invalid parameter: {str(e)}"}), 400
             except Exception as e:
                 logger.error(f"Error filtering historical data: {str(e)}", exc_info=True)
                 return jsonify({"error": f"Error filtering historical data: {str(e)}"}), 500
@@ -233,8 +264,8 @@ def create_app():
 
     @app.route("/export_gpx")
     async def export_gpx():
-        start_date = parse_date(request.args.get("startDate", "2020-01-01"))
-        end_date = parse_date(request.args.get("endDate", datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+        start_date = request.args.get("startDate") or "2020-01-01"
+        end_date = request.args.get("endDate") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         filter_waco = request.args.get("filterWaco", "false").lower() == "true"
         waco_boundary = request.args.get("wacoBoundary", "city_limits")
 
@@ -471,6 +502,15 @@ def create_app():
         try:
             await app.task_manager.cancel_all()
             logger.info("All tasks cancelled")
+
+            if app.bouncie_api.client and app.bouncie_api.client.client_session:
+                await app.bouncie_api.client.client_session.close()
+                logger.info("Bouncie API client session closed")
+
+            if app.geojson_handler.bouncie_api.client and app.geojson_handler.bouncie_api.client.client_session:
+                await app.geojson_handler.bouncie_api.client.client_session.close()
+                logger.info("GeoJSON handler Bouncie API client session closed")
+
         except Exception as e:
             logger.error(f"Error during shutdown: {str(e)}", exc_info=True)
         finally:
@@ -515,6 +555,8 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"Error starting Hypercorn server: {str(e)}", exc_info=True)
             raise
+        finally:
+            await app.shutdown()
 
     logger.info("Starting application...")
     asyncio.run(run_app())
