@@ -47,6 +47,7 @@ class WacoStreetsAnalyzer:
         except Exception as e:
             logger.error(f"Error initializing WacoStreetsAnalyzer: {str(e)}")
             raise
+
     def _process_streets_into_segments(self):
         # Project to a local UTM zone for accurate length calculations
         utm_crs = self._get_utm_crs(self.streets_gdf)

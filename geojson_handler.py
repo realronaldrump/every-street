@@ -240,9 +240,9 @@ class GeoJSONHandler:
 
         logger.info(f"Updated monthly files with {len(new_features)} new features")
 
-    async def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, bounds=None):
-        start_datetime = get_start_of_day(parse_date(start_date))
-        end_datetime = get_end_of_day(parse_date(end_date))
+    def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, bounds=None):
+        start_datetime = get_start_of_day(parse_date(start_date)).replace(tzinfo=timezone.utc)
+        end_datetime = get_end_of_day(parse_date(end_date)).replace(tzinfo=timezone.utc)
 
         logger.info(f"Filtering features from {start_datetime} to {end_datetime}, filter_waco={filter_waco}")
 
@@ -252,9 +252,8 @@ class GeoJSONHandler:
             bounding_box = box(*bounds)
 
         for month_year in self.monthly_data.keys():
-            month_start = datetime.strptime(month_year, "%Y-%m")
-            month_end = month_start + timedelta(days=32)
-            month_end = month_end.replace(day=1) - timedelta(days=1)
+            month_start = datetime.strptime(month_year, "%Y-%m").replace(tzinfo=timezone.utc)
+            month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1, tzinfo=timezone.utc) - timedelta(seconds=1)
 
             if (month_start <= end_datetime and month_end >= start_datetime):
                 for feature in self.monthly_data[month_year]:
