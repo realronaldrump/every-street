@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import date
 
-# Logging Setup
+# Set up logging
 LOG_DIRECTORY = "logs"
 os.makedirs(LOG_DIRECTORY, exist_ok=True)
 log_file = os.path.join(LOG_DIRECTORY, "app.log")
@@ -36,10 +36,6 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-logger.info("Logging initialized")
-
-# Load environment variables
-load_dotenv()
 
 def login_required(func):
     @functools.wraps(func)
@@ -543,6 +539,7 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
     async def run_app():
+        app = main()
         config = HyperConfig()
         config.bind = ["0.0.0.0:8080"]
         config.workers = 1

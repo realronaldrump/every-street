@@ -953,9 +953,9 @@ function updateMapWithHistoricalData(data) {
 
     showFeedback(`Displayed ${data.features.length} historical features`, 'success');
 
-    if (data.features.length > 0 && map) {
+    if (data.features.length > 0 && historicalDataLayer) {
         const bounds = historicalDataLayer.getBounds();
-        if (bounds.isValid()) {
+        if (bounds.isValid() && map) {
             map.fitBounds(bounds);
         } else {
             console.warn('Invalid bounds for historical data');
@@ -1237,62 +1237,77 @@ function setupEventListeners() {
             if (wacoStreetsLayer) {
                 wacoStreetsLayer.setStyle({ opacity: wacoStreetsOpacity });
                 console.log(`Set opacity to ${wacoStreetsOpacity}`);
-        } else {
-            console.warn("wacoStreetsLayer is not initialized");
-        }
-    });
+            } else {
+                console.warn("wacoStreetsLayer is not initialized");
+            }
+        });
+    }
 
     const hideWacoStreetsBtn = document.getElementById('hideWacoStreetsBtn');
     if (hideWacoStreetsBtn) {
         hideWacoStreetsBtn.addEventListener('click', () => {
             console.log("Hide Waco streets button clicked");
-            if (wacoStreetsLayer) {
+            if (wacoStreetsLayer && map) {
                 map.removeLayer(wacoStreetsLayer);
                 wacoStreetsLayer = null;
                 showFeedback('Waco streets hidden', 'info');
             } else {
-                console.warn("wacoStreetsLayer is not initialized");
+                console.warn("wacoStreetsLayer is not initialized or map is not available");
             }
         });
-    } else {
-        console.error("hideWacoStreetsBtn not found in the DOM");
     }
 
-    document.getElementById('streets-select').addEventListener('change', function(e) {
-        wacoStreetsFilter = e.target.value;
-        if (wacoStreetsLayer) {
-            loadWacoStreets();
-        }
-    });
-
-    document.getElementById('showHistoricalData').addEventListener('change', function(e) {
-        if (e.target.checked) {
-            map.addLayer(historicalDataLayer);
-        } else {
-            map.removeLayer(historicalDataLayer);
-        }
-    });
-
-    document.getElementById('showWacoStreets').addEventListener('change', function(e) {
-        if (e.target.checked) {
-            loadWacoStreets();
-        } else {
+    const streetsSelect = document.getElementById('streets-select');
+    if (streetsSelect) {
+        streetsSelect.addEventListener('change', function(e) {
+            wacoStreetsFilter = e.target.value;
             if (wacoStreetsLayer) {
+                loadWacoStreets();
+            }
+        });
+    }
+
+    const showHistoricalDataCheckbox = document.getElementById('showHistoricalData');
+    if (showHistoricalDataCheckbox) {
+        showHistoricalDataCheckbox.addEventListener('change', function(e) {
+            if (e.target.checked && map) {
+                if (historicalDataLayer) {
+                    map.addLayer(historicalDataLayer);
+                } else {
+                    console.warn("historicalDataLayer is not initialized");
+                }
+            } else if (!e.target.checked && map && historicalDataLayer) {
+                map.removeLayer(historicalDataLayer);
+            }
+        });
+    }
+
+    const showWacoStreetsCheckbox = document.getElementById('showWacoStreets');
+    if (showWacoStreetsCheckbox) {
+        showWacoStreetsCheckbox.addEventListener('change', function(e) {
+            if (e.target.checked) {
+                loadWacoStreets();
+            } else if (wacoStreetsLayer && map) {
                 map.removeLayer(wacoStreetsLayer);
             }
-        }
-    });
+        });
+    }
 
-    document.getElementById('wacoStreetsFilter').addEventListener('change', function(e) {
-        wacoStreetsFilter = e.target.value;
-        if (wacoStreetsLayer) {
-            loadWacoStreets();
-        }
-    });
+    const wacoStreetsFilterSelect = document.getElementById('wacoStreetsFilter');
+    if (wacoStreetsFilterSelect) {
+        wacoStreetsFilterSelect.addEventListener('change', function(e) {
+            wacoStreetsFilter = e.target.value;
+            if (wacoStreetsLayer) {
+                loadWacoStreets();
+            }
+        });
+    }
 
-    logoutBtn.addEventListener('click', () => {
-        window.location.href = '/logout';
-    });
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', () => {
+            window.location.href = '/logout';
+        });
+    }
 }
 
 function debounce(func, wait) {
@@ -1308,12 +1323,21 @@ function debounce(func, wait) {
 }
 
 function showLoading(message = 'Loading...') {
-    document.querySelector('.loading-text').textContent = message;
-    document.getElementById('loadingOverlay').style.display = 'flex';
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    if (loadingOverlay) {
+        const loadingText = loadingOverlay.querySelector('.loading-text');
+        if (loadingText) {
+            loadingText.textContent = message;
+        }
+        loadingOverlay.style.display = 'flex';
+    }
 }
 
 function hideLoading() {
-    document.getElementById('loadingOverlay').style.display = 'none';
+    const loadingOverlay = document.getElementById('loadingOverlay');
+    if (loadingOverlay) {
+        loadingOverlay.style.display = 'none';
+    }
 }
 
 function createAnimatedMarker(latLng, options = {}) {
@@ -1328,11 +1352,13 @@ function createAnimatedMarker(latLng, options = {}) {
 
 function animateStatUpdate(elementId, newValue) {
     const element = document.getElementById(elementId);
-    element.classList.add('animate__animated', 'animate__flipInX');
-    element.textContent = newValue;
-    setTimeout(() => {
-        element.classList.remove('animate__animated', 'animate__flipInX');
-    }, 1000);
+    if (element) {
+        element.classList.add('animate__animated', 'animate__flipInX');
+        element.textContent = newValue;
+        setTimeout(() => {
+            element.classList.remove('animate__animated', 'animate__flipInX');
+        }, 1000);
+    }
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -1364,4 +1390,4 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     setupEventListeners();
     updateProgress();
-})};
+});
