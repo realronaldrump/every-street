@@ -74,10 +74,9 @@ class WacoStreetsAnalyzer:
         self.waco_box = box(*self.waco_bbox)
 
     def _get_utm_crs(self, gdf):
-        # Determine the appropriate UTM zone based on the centroid of the data
         bounds = gdf.total_bounds
-        lon = (bounds[0] + bounds[2]) / 2  # average of min and max longitude
-        lat = (bounds[1] + bounds[3]) / 2  # average of min and max latitude
+        lon = (bounds[0] + bounds[2]) / 2
+        lat = (bounds[1] + bounds[3]) / 2
         utm_zone = int((lon + 180) / 6) + 1
         hemisphere = 'north' if lat >= 0 else 'south'
         return f'+proj=utm +zone={utm_zone} +{hemisphere} +datum=WGS84 +units=m +no_defs'
@@ -87,33 +86,15 @@ class WacoStreetsAnalyzer:
         for idx, segment in self.segments_df.iterrows():
             self.spatial_index.insert(idx, segment.geometry.bounds)
 
-    def _snap_point_to_segment(self, point):
-        if not self.waco_box.contains(point):
-            return None
-
-        nearby_indices = list(self.spatial_index.intersection(point.buffer(self.snap_distance).bounds))
-        if not nearby_indices:
-            return None
-
-        nearby_segments = self.segments_df.iloc[nearby_indices]
-        if nearby_segments.empty:
-            return None
-
-        distances = nearby_segments.geometry.distance(point)
-        nearest_index = distances.idxmin()
-        return self.segments_df.loc[nearest_index, 'geometry']
-
     def _process_route(self, route):
         traveled_segments = set()
         if isinstance(route, dict) and 'geometry' in route and 'coordinates' in route['geometry']:
             coords = route['geometry']['coordinates']
-            for i in range(len(coords) - 1):
-                start_point = Point(coords[i][0], coords[i][1])
-                end_point = Point(coords[i+1][0], coords[i+1][1])
-                if self.waco_box.contains(start_point) or self.waco_box.contains(end_point):
-                    line = LineString([start_point, end_point])
-                    intersecting_segments = self.segments_df[self.segments_df.intersects(line)]
-                    traveled_segments.update(intersecting_segments.index)
+            route_line = LineString(coords)
+            buffer_distance = 0.0001  # Adjust as needed, about 11 meters
+            route_buffer = route_line.buffer(buffer_distance)
+            intersecting_segments = self.segments_df[self.segments_df.intersects(route_buffer)]
+            traveled_segments.update(intersecting_segments.index)
         return traveled_segments
 
     async def update_progress(self, new_routes, progress_callback=None):
@@ -132,19 +113,17 @@ class WacoStreetsAnalyzer:
 
             progress = self.calculate_progress()
             logger.info(f"Progress update complete. Overall progress: {progress:.2f}%")
-            return progress
+
         except Exception as e:
             logger.error(f"Error during progress update: {e}")
             raise
 
     def reset_progress(self):
-        """Resets the progress by clearing all traveled segments."""
         logger.info("Resetting progress...")
         self.traveled_segments.clear()
         logger.info("Progress has been reset.")
 
     def calculate_progress(self):
-        """Calculates the overall progress."""
         logger.info("Calculating progress...")
         total_length = self.segments_df['length'].sum()
         traveled_length = self.segments_df.loc[list(self.traveled_segments), 'length'].sum()
@@ -157,7 +136,6 @@ class WacoStreetsAnalyzer:
         return progress
 
     def get_progress_geojson(self, waco_boundary='city_limits'):
-        """Generates GeoJSON for visualizing progress."""
         logger.info("Generating progress GeoJSON...")
 
         waco_limits = None
@@ -176,7 +154,8 @@ class WacoStreetsAnalyzer:
                     "segment_id": segment.segment_id,
                     "street_id": segment.street_id,
                     "name": segment.name,
-                    "traveled": segment.Index in self.traveled_segments
+                    "traveled": segment.Index in self.traveled_segments,
+                    "color": "#00ff00" if segment.Index in self.traveled_segments else "#ff0000"
                 }
             }
             features.append(feature)
@@ -184,7 +163,6 @@ class WacoStreetsAnalyzer:
         return {"type": "FeatureCollection", "features": features}
 
     def get_untraveled_streets(self, waco_boundary='city_limits'):
-        """Returns a GeoDataFrame of untraveled streets."""
         logger.info("Generating untraveled streets...")
 
         waco_limits = None
@@ -232,7 +210,6 @@ class WacoStreetsAnalyzer:
         }
 
     def get_street_network(self, waco_boundary='city_limits'):
-        """Returns the entire street network as a GeoDataFrame."""
         logger.info("Retrieving street network...")
 
         waco_limits = None
