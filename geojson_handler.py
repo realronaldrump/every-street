@@ -29,17 +29,6 @@ class GeoJSONHandler:
         self.monthly_data = defaultdict(list)
         self.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
 
-    async def update_all_progress(self):
-        try:
-            logger.info("Updating progress for all historical data...")
-            await self.waco_analyzer.update_progress(self.historical_geojson_features)
-            coverage = self.waco_analyzer.analyze_coverage()
-            logger.info(f"Progress updated successfully. Coverage: {coverage['coverage_percentage']:.2f}%")
-            return coverage
-        except Exception as e:
-            logger.error(f"Error updating progress: {str(e)}", exc_info=True)
-            raise
-
     def _flatten_coordinates(self, coords):
         flat_coords = []
         for item in coords:
@@ -240,7 +229,7 @@ class GeoJSONHandler:
 
         logger.info(f"Updated monthly files with {len(new_features)} new features")
 
-    def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, bounds=None):
+    async def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, bounds=None):
         start_datetime = get_start_of_day(parse_date(start_date)).replace(tzinfo=timezone.utc)
         end_datetime = get_end_of_day(parse_date(end_date)).replace(tzinfo=timezone.utc)
 
@@ -251,12 +240,12 @@ class GeoJSONHandler:
         if bounds:
             bounding_box = box(*bounds)
 
-        for month_year in self.monthly_data.keys():
+        for month_year, features in self.monthly_data.items():
             month_start = datetime.strptime(month_year, "%Y-%m").replace(tzinfo=timezone.utc)
             month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1, tzinfo=timezone.utc) - timedelta(seconds=1)
 
-            if (month_start <= end_datetime and month_end >= start_datetime):
-                for feature in self.monthly_data[month_year]:
+            if month_start <= end_datetime and month_end >= start_datetime:
+                for feature in features:
                     timestamp = feature["properties"].get("timestamp")
                     if timestamp is not None:
                         try:
@@ -281,6 +270,17 @@ class GeoJSONHandler:
 
         logger.info(f"Filtered {len(filtered_features)} features")
         return filtered_features
+
+    async def update_all_progress(self):
+        try:
+            logger.info("Updating progress for all historical data...")
+            await self.waco_analyzer.update_progress(self.historical_geojson_features)
+            coverage = self.waco_analyzer.analyze_coverage()
+            logger.info(f"Progress updated successfully. Coverage: {coverage['coverage_percentage']:.2f}%")
+            return coverage
+        except Exception as e:
+            logger.error(f"Error updating progress: {str(e)}", exc_info=True)
+            raise
 
     def get_feature_timestamps(self, feature):
         coordinates = feature["geometry"]["coordinates"]

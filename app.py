@@ -88,6 +88,7 @@ def create_app():
     app.bouncie_api = BouncieAPI()
     app.gpx_exporter = GPXExporter(app.geojson_handler)
     app.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
+    app.geojson_handler.waco_analyzer = app.waco_analyzer
     logger.info(f"Initialized WacoStreetsAnalyzer with {len(app.waco_analyzer.streets_gdf)} streets")
 
     # Asynchronous Locks

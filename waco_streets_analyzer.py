@@ -132,7 +132,7 @@ class WacoStreetsAnalyzer:
 
             progress = self.calculate_progress()
             logger.info(f"Progress update complete. Overall progress: {progress:.2f}%")
-
+            return progress
         except Exception as e:
             logger.error(f"Error during progress update: {e}")
             raise
