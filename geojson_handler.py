@@ -21,13 +21,14 @@ VEHICLE_ID = os.getenv("VEHICLE_ID")
 logger = logging.getLogger(__name__)
 
 class GeoJSONHandler:
-    def __init__(self):
+    def __init__(self, waco_analyzer):
         self.bouncie_api = BouncieAPI()
         self.historical_geojson_features = []
         self.fetched_trip_timestamps = set()
         self.idx = index.Index()
         self.monthly_data = defaultdict(list)
-        self.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
+        self.waco_analyzer = waco_analyzer
+        self.lock = asyncio.Lock()
 
     def _flatten_coordinates(self, coords):
         flat_coords = []
@@ -112,74 +113,76 @@ class GeoJSONHandler:
             return None
 
     async def load_historical_data(self):
-        if self.historical_geojson_features:
-            logger.info("Historical data already loaded.")
-            return
+        async with self.lock:
+            if self.historical_geojson_features:
+                logger.info("Historical data already loaded.")
+                return
 
-        try:
-            logger.info("Loading historical data from monthly files.")
-            monthly_files = [f for f in os.listdir('static') if f.startswith('historical_data_') and f.endswith('.geojson')]
+            try:
+                logger.info("Loading historical data from monthly files.")
+                monthly_files = [f for f in os.listdir('static') if f.startswith('historical_data_') and f.endswith('.geojson')]
 
-            for file in monthly_files:
-                async with aiofiles.open(f"static/{file}", "r") as f:
-                    data = json.loads(await f.read())
-                    month_features = data.get("features", [])
-                    month_year = file.split('_')[2].split('.')[0]
-                    self.historical_geojson_features.extend(month_features)
-                    self.monthly_data[month_year] = month_features
+                for file in monthly_files:
+                    async with aiofiles.open(f"static/{file}", "r") as f:
+                        data = json.loads(await f.read())
+                        month_features = data.get("features", [])
+                        month_year = file.split('_')[2].split('.')[0]
+                        self.historical_geojson_features.extend(month_features)
+                        self.monthly_data[month_year] = month_features
 
-            logger.info(f"Loaded {len(self.historical_geojson_features)} features from {len(monthly_files)} monthly files")
+                logger.info(f"Loaded {len(self.historical_geojson_features)} features from {len(monthly_files)} monthly files")
 
-            if not self.historical_geojson_features:
-                logger.warning("No historical data found in monthly files.")
-                await self.update_historical_data(fetch_all=True)
-            else:
-                for i, feature in enumerate(self.historical_geojson_features):
-                    bbox = self._calculate_bounding_box(feature)
-                    self.idx.insert(i, bbox)
-
-            await self.update_all_progress()
-
-        except Exception as e:
-            logger.error(f"Unexpected error loading historical data: {str(e)}", exc_info=True)
-            raise Exception(f"Error loading historical data: {str(e)}")
-
-    async def update_historical_data(self, fetch_all=False):
-        try:
-            logger.info("Starting update_historical_data")
-
-            if fetch_all:
-                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
-            elif self.historical_geojson_features:
-                latest_timestamp = max(
-                    feature["properties"]["timestamp"]
-                    for feature in self.historical_geojson_features
-                    if feature["properties"].get("timestamp") is not None
-                )
-                latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
-            else:
-                latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
-
-            today = datetime.now(tz=timezone.utc)
-            all_trips = await self.bouncie_api.fetch_historical_data(latest_date, today)
-
-            logger.info(f"Fetched {len(all_trips)} trips")
-            new_features = await self._process_trips_in_batches(all_trips)
-            logger.info(f"Created {len(new_features)} new features from trips")
-
-            if new_features:
-                await self._update_monthly_files(new_features)
-                self.historical_geojson_features.extend(new_features)
-
-                for i, feature in enumerate(new_features):
-                    bbox = self._calculate_bounding_box(feature)
-                    self.idx.insert(len(self.historical_geojson_features) - len(new_features) + i, bbox)
+                if not self.historical_geojson_features:
+                    logger.warning("No historical data found in monthly files.")
+                    await self.update_historical_data(fetch_all=True)
+                else:
+                    for i, feature in enumerate(self.historical_geojson_features):
+                        bbox = self._calculate_bounding_box(feature)
+                        self.idx.insert(i, bbox)
 
                 await self.update_all_progress()
 
-        except Exception as e:
-            logger.error(f"An error occurred during historical data update: {e}", exc_info=True)
-            raise
+            except Exception as e:
+                logger.error(f"Unexpected error loading historical data: {str(e)}", exc_info=True)
+                raise Exception(f"Error loading historical data: {str(e)}")
+
+    async def update_historical_data(self, fetch_all=False):
+        async with self.lock:
+            try:
+                logger.info("Starting update_historical_data")
+
+                if fetch_all:
+                    latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+                elif self.historical_geojson_features:
+                    latest_timestamp = max(
+                        feature["properties"]["timestamp"]
+                        for feature in self.historical_geojson_features
+                        if feature["properties"].get("timestamp") is not None
+                    )
+                    latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
+                else:
+                    latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+
+                today = datetime.now(tz=timezone.utc)
+                all_trips = await self.bouncie_api.fetch_historical_data(latest_date, today)
+
+                logger.info(f"Fetched {len(all_trips)} trips")
+                new_features = await self._process_trips_in_batches(all_trips)
+                logger.info(f"Created {len(new_features)} new features from trips")
+
+                if new_features:
+                    await self._update_monthly_files(new_features)
+                    self.historical_geojson_features.extend(new_features)
+
+                    for i, feature in enumerate(new_features):
+                        bbox = self._calculate_bounding_box(feature)
+                        self.idx.insert(len(self.historical_geojson_features) - len(new_features) + i, bbox)
+
+                    await self.update_all_progress()
+
+            except Exception as e:
+                logger.error(f"An error occurred during historical data update: {e}", exc_info=True)
+                raise
 
     async def _process_trips_in_batches(self, trips, batch_size=1000):
         new_features = []

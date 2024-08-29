@@ -76,21 +76,21 @@ def create_app():
     app = cors(app)
     app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
     app.config["PIN"] = os.getenv("PIN")
-
+    
     # Initialize app attributes
     app.historical_data_loaded = False
     app.historical_data_loading = False
     app.is_processing = False
-
+    
     # Initialize API Clients and Handlers
-    app.geojson_handler = GeoJSONHandler()
+    app.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
+    app.geojson_handler = GeoJSONHandler(app.waco_analyzer)
     app.geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
     app.bouncie_api = BouncieAPI()
     app.gpx_exporter = GPXExporter(app.geojson_handler)
-    app.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
-    app.geojson_handler.waco_analyzer = app.waco_analyzer
+    
     logger.info(f"Initialized WacoStreetsAnalyzer with {len(app.waco_analyzer.streets_gdf)} streets")
-
+    
     # Asynchronous Locks
     app.historical_data_lock = asyncio.Lock()
     app.processing_lock = asyncio.Lock()
@@ -146,7 +146,11 @@ def create_app():
                 if coverage_analysis is None:
                     raise ValueError("Failed to update Waco streets progress")
                 logging.info(f"Progress update: {coverage_analysis}")
-                return jsonify(coverage_analysis)
+                return jsonify({
+                    "total_streets": int(coverage_analysis["total_streets"]),
+                    "traveled_streets": int(coverage_analysis["traveled_streets"]),
+                    "coverage_percentage": float(coverage_analysis["coverage_percentage"])
+                })
             except Exception as e:
                 logging.error(f"Error in get_progress: {str(e)}", exc_info=True)
                 return jsonify({"error": str(e)}), 500
@@ -157,7 +161,11 @@ def create_app():
             try:
                 await app.geojson_handler.update_all_progress()
                 coverage_analysis = await app.geojson_handler.update_waco_streets_progress()
-                return jsonify(coverage_analysis), 200
+                return jsonify({
+                    "total_streets": int(coverage_analysis["total_streets"]),
+                    "traveled_streets": int(coverage_analysis["traveled_streets"]),
+                    "coverage_percentage": float(coverage_analysis["coverage_percentage"])
+                }), 200
             except Exception as e:
                 logger.error(f"Error updating progress: {str(e)}", exc_info=True)
                 return jsonify({"error": f"Error updating progress: {str(e)}"}), 500

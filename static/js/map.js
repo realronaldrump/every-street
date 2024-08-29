@@ -18,7 +18,7 @@ const MAX_LOAD_ATTEMPTS = 3;
 let isLoadingHistoricalData = false;
 let progressBar, progressText;
 let wacoStreetsOpacity = 0.7;
-let wacoStreetsFilter = 'null';
+let wacoStreetsFilter = 'all'; // Default to showing all streets
 let untraveledStreetsLayer = null;
 
 // DOM elements
@@ -39,6 +39,11 @@ const exportToGPXBtn = document.getElementById('exportToGPXBtn');
 const clearDrawnShapesBtn = document.getElementById('clearDrawnShapesBtn');
 const suggestionsContainer = document.getElementById('searchSuggestions');
 const logoutBtn = document.getElementById('logoutBtn');
+const toggleUntraveledBtn = document.getElementById('toggleUntraveledBtn');
+const toggleWacoStreetsBtn = document.getElementById('toggleWacoStreetsBtn');
+const hideWacoStreetsBtn = document.getElementById('hideWacoStreetsBtn');
+const resetProgressBtn = document.getElementById('resetProgressBtn');
+const streetsSelect = document.getElementById('streets-select');
 
 let searchMarker;
 
@@ -310,7 +315,7 @@ async function loadLiveRouteData() {
 
 async function loadProgressData() {
     try {
-        const response = await fetch('/progress_geojson');
+        const response = await fetch(`/progress_geojson?wacoBoundary=${wacoBoundarySelect.value}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -1011,6 +1016,9 @@ function setupEventListeners() {
         applyFilterBtn.addEventListener('click', handleBackgroundTask(async () => {
             await loadWacoLimits(wacoBoundarySelect.value);
             await displayHistoricalData();
+            await loadProgressData(); // Update progress layer based on new filters
+            await loadUntraveledStreets(); // Update untraveled streets based on new filters
+            await loadWacoStreets(); // Update Waco streets based on new filters
             showFeedback('Filters applied successfully', 'success');
         }, 'Applying filters...'));
     }
@@ -1037,10 +1045,15 @@ function setupEventListeners() {
     }
 
     if (wacoBoundarySelect) {
-        wacoBoundarySelect.addEventListener('change', () => {
+        wacoBoundarySelect.addEventListener('change', handleBackgroundTask(async () => {
             selectedWacoBoundary = wacoBoundarySelect.value;
-            showFeedback(`Waco boundary changed to ${selectedWacoBoundary}`, 'info');
-        });
+            await loadWacoLimits(selectedWacoBoundary);
+            await displayHistoricalData();
+            await loadProgressData(); // Update progress layer based on new boundary
+            await loadUntraveledStreets(); // Update untraveled streets based on new boundary
+            await loadWacoStreets(); // Update Waco streets based on new boundary
+            showFeedback(`Waco boundary changed to ${selectedWacoBoundary}`, 'success');
+        }, 'Changing Waco boundary...'));
     }
 
     if (clearRouteBtn) {
@@ -1178,6 +1191,9 @@ function setupEventListeners() {
             element.addEventListener('change', handleBackgroundTask(async () => {
                 await action(element.value);
                 await displayHistoricalData();
+                await loadProgressData(); // Update progress layer based on new filters
+                await loadUntraveledStreets(); // Update untraveled streets based on new filters
+                await loadWacoStreets(); // Update Waco streets based on new filters
                 showFeedback('Filters applied successfully', 'success');
             }, 'Applying filters...'));
         }
@@ -1191,23 +1207,14 @@ function setupEventListeners() {
         clearDrawnShapesBtn.addEventListener('click', handleBackgroundTask(clearDrawnShapes, 'Clearing drawn shapes...'));
     }
 
-    const toggleUntraveledBtn = document.getElementById('toggleUntraveledBtn');
     if (toggleUntraveledBtn) {
-        toggleUntraveledBtn.addEventListener('click', () => {
-            console.log("Toggle untraveled streets button clicked");
-            toggleUntraveledStreets();
-        });
+        toggleUntraveledBtn.addEventListener('click', handleBackgroundTask(toggleUntraveledStreets, 'Toggling untraveled streets...'));
     }
 
-    const toggleWacoStreetsBtn = document.getElementById('toggleWacoStreetsBtn');
     if (toggleWacoStreetsBtn) {
-        toggleWacoStreetsBtn.addEventListener('click', () => {
-            console.log("Toggle Waco streets button clicked");
-            toggleWacoStreets();
-        });
+        toggleWacoStreetsBtn.addEventListener('click', handleBackgroundTask(toggleWacoStreets, 'Toggling Waco streets...'));
     }
 
-    const resetProgressBtn = document.getElementById('resetProgressBtn');
     if (resetProgressBtn) {
         resetProgressBtn.addEventListener('click', handleBackgroundTask(async () => {
             try {
@@ -1218,7 +1225,8 @@ function setupEventListeners() {
                     await Promise.all([
                         updateProgress(), // Call this after resetting progress
                         loadUntraveledStreets(),
-                        loadWacoStreets()
+                        loadWacoStreets(),
+                        loadProgressData() // Update progress layer after reset
                     ]);
                 } else {
                     throw new Error(data.error);
@@ -1229,21 +1237,6 @@ function setupEventListeners() {
         }, 'Resetting progress...'));
     }
 
-    const opacitySlider = document.getElementById('opacity-slider');
-    if (opacitySlider) {
-        opacitySlider.addEventListener('input', function(e) {
-            console.log("Opacity slider changed");
-            wacoStreetsOpacity = parseFloat(e.target.value);
-            if (wacoStreetsLayer) {
-                wacoStreetsLayer.setStyle({ opacity: wacoStreetsOpacity });
-                console.log(`Set opacity to ${wacoStreetsOpacity}`);
-            } else {
-                console.warn("wacoStreetsLayer is not initialized");
-            }
-        });
-    }
-
-    const hideWacoStreetsBtn = document.getElementById('hideWacoStreetsBtn');
     if (hideWacoStreetsBtn) {
         hideWacoStreetsBtn.addEventListener('click', () => {
             console.log("Hide Waco streets button clicked");
@@ -1257,45 +1250,8 @@ function setupEventListeners() {
         });
     }
 
-    const streetsSelect = document.getElementById('streets-select');
     if (streetsSelect) {
         streetsSelect.addEventListener('change', function(e) {
-            wacoStreetsFilter = e.target.value;
-            if (wacoStreetsLayer) {
-                loadWacoStreets();
-            }
-        });
-    }
-
-    const showHistoricalDataCheckbox = document.getElementById('showHistoricalData');
-    if (showHistoricalDataCheckbox) {
-        showHistoricalDataCheckbox.addEventListener('change', function(e) {
-            if (e.target.checked && map) {
-                if (historicalDataLayer) {
-                    map.addLayer(historicalDataLayer);
-                } else {
-                    console.warn("historicalDataLayer is not initialized");
-                }
-            } else if (!e.target.checked && map && historicalDataLayer) {
-                map.removeLayer(historicalDataLayer);
-            }
-        });
-    }
-
-    const showWacoStreetsCheckbox = document.getElementById('showWacoStreets');
-    if (showWacoStreetsCheckbox) {
-        showWacoStreetsCheckbox.addEventListener('change', function(e) {
-            if (e.target.checked) {
-                loadWacoStreets();
-            } else if (wacoStreetsLayer && map) {
-                map.removeLayer(wacoStreetsLayer);
-            }
-        });
-    }
-
-    const wacoStreetsFilterSelect = document.getElementById('wacoStreetsFilter');
-    if (wacoStreetsFilterSelect) {
-        wacoStreetsFilterSelect.addEventListener('change', function(e) {
             wacoStreetsFilter = e.target.value;
             if (wacoStreetsLayer) {
                 loadWacoStreets();
