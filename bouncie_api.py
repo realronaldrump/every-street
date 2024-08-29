@@ -127,29 +127,46 @@ class BouncieAPI:
         try:
             # Fetch the latest timestamp from the database
             latest_timestamp = db_handler.get_latest_historical_timestamp()
-            
+
             # If no data exists, start from a default date
             if latest_timestamp is None:
                 latest_timestamp = datetime(2020, 1, 1, tzinfo=timezone.utc)
-            
+
             end_date = datetime.now(timezone.utc)
-            
+
             all_trips = await self.fetch_historical_data(latest_timestamp, end_date)
-            
-            for trip in all_trips:
-                for band in trip.get('bands', []):
-                    for path in band.get('paths', []):
-                        for point in path:
-                            if len(point) >= 6:
-                                lat, lon, _, speed, timestamp, heading = point
-                                db_handler.add_historical_data_point({
-                                    "timestamp": datetime.fromtimestamp(timestamp, tz=timezone.utc),
-                                    "latitude": lat,
-                                    "longitude": lon,
-                                    "speed": speed,
-                                    "heading": heading
-                                })
-            
+
+            for trip_data in all_trips:
+                # Check if trip_data is a list (which seems to be the case)
+                if isinstance(trip_data, list):
+                    for trip in trip_data:
+                        for band in trip.get('bands', []):
+                            for path in band.get('paths', []):
+                                for point in path:
+                                    if len(point) >= 6:
+                                        lat, lon, _, speed, timestamp, heading = point
+                                        db_handler.add_historical_data_point({
+                                            "timestamp": datetime.fromtimestamp(timestamp, tz=timezone.utc),
+                                            "latitude": lat,
+                                            "longitude": lon,
+                                            "speed": speed,
+                                            "heading": heading
+                                        })
+                else:
+                    # Handle the case where trip_data is not a list (as we originally expected)
+                    for band in trip_data.get('bands', []):
+                        for path in band.get('paths', []):
+                            for point in path:
+                                if len(point) >= 6:
+                                    lat, lon, _, speed, timestamp, heading = point
+                                    db_handler.add_historical_data_point({
+                                        "timestamp": datetime.fromtimestamp(timestamp, tz=timezone.utc),
+                                        "latitude": lat,
+                                        "longitude": lon,
+                                        "speed": speed,
+                                        "heading": heading
+                                    })
+
             logger.info(f"Updated historical data with {len(all_trips)} new trips")
         except Exception as e:
             logger.error(f"Error updating historical data: {str(e)}")
