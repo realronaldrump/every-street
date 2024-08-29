@@ -353,21 +353,19 @@ async function updateProgress() {
         const data = await response.json();
         console.log("Progress data:", data);
 
-        const progressBar = document.getElementById('progress-bar');
-        const progressText = document.getElementById('progress-text');
-
         if (progressBar && progressText && data.coverage_percentage !== undefined) {
-            progressBar.style.width = `${data.coverage_percentage}%`;
+            const newWidth = `${data.coverage_percentage}%`;
+
+            // Apply animation only if the width changes
+            if (progressBar.style.width !== newWidth) {
+                progressBar.style.width = newWidth;
+                progressBar.classList.add('progress-bar-update');
+                setTimeout(() => {
+                    progressBar.classList.remove('progress-bar-update');
+                }, 1000); // Remove animation class after 1 second
+            }
+
             progressText.textContent = `${data.coverage_percentage.toFixed(2)}% of Waco Streets Traveled`;
-
-            // Animate the progress update
-            progressBar.classList.add('animate__animated', 'animate__pulse');
-            progressText.classList.add('animate__animated', 'animate__bounce');
-
-            setTimeout(() => {
-                progressBar.classList.remove('animate__animated', 'animate__pulse');
-                progressText.classList.remove('animate__animated', 'animate__bounce');
-            }, 1000);
         } else {
             console.error("Invalid progress data received or DOM elements not found");
         }
