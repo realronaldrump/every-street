@@ -123,6 +123,38 @@ class BouncieAPI:
         logger.info(f"Returning trip metrics: {formatted_metrics}")
         return formatted_metrics
 
+    async def update_historical_data(self, db_handler):
+        try:
+            # Fetch the latest timestamp from the database
+            latest_timestamp = db_handler.get_latest_historical_timestamp()
+            
+            # If no data exists, start from a default date
+            if latest_timestamp is None:
+                latest_timestamp = datetime(2020, 1, 1, tzinfo=timezone.utc)
+            
+            end_date = datetime.now(timezone.utc)
+            
+            all_trips = await self.fetch_historical_data(latest_timestamp, end_date)
+            
+            for trip in all_trips:
+                for band in trip.get('bands', []):
+                    for path in band.get('paths', []):
+                        for point in path:
+                            if len(point) >= 6:
+                                lat, lon, _, speed, timestamp, heading = point
+                                db_handler.add_historical_data_point({
+                                    "timestamp": datetime.fromtimestamp(timestamp, tz=timezone.utc),
+                                    "latitude": lat,
+                                    "longitude": lon,
+                                    "speed": speed,
+                                    "heading": heading
+                                })
+            
+            logger.info(f"Updated historical data with {len(all_trips)} new trips")
+        except Exception as e:
+            logger.error(f"Error updating historical data: {str(e)}")
+            raise
+    
     def _parse_timestamp(self, timestamp_iso):
         try:
             timestamp_dt = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))

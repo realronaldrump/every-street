@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Profile</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>User Profile</h1>
+        <form action="{{ url_for('update_profile') }}" method="post">
+            <div class="form-group">
+                <label for="client_id">Client ID:</label>
+                <input type="text" id="client_id" name="client_id" value="{{ user.client_id }}">
+            </div>
+            <div class="form-group">
+                <label for="client_secret">Client Secret:</label>
+                <input type="password" id="client_secret" name="client_secret" value="{{ user.client_secret }}">
+            </div>
+            <div class="form-group">
+                <label for="auth_code">Auth Code:</label>
+                <input type="text" id="auth_code" name="auth_code" value="{{ user.auth_code }}">
+            </div>
+            <div class="form-group">
+                <label for="device_imei">Device IMEI:</label>
+                <input type="text" id="device_imei" name="device_imei" value="{{ user.device_imei }}">
+            </div>
+            <div class="form-group">
+                <label for="vehicle_id">Vehicle ID:</label>
+                <input type="text" id="vehicle_id" name="vehicle_id" value="{{ user.vehicle_id }}">
+            </div>
+            <div class="form-group">
+                <label for="google_maps_api">Google Maps API Key:</label>
+                <input type="text" id="google_maps_api" name="google_maps_api" value="{{ user.google_maps_api }}">
+            </div>
+            <button type="submit">Update Profile</button>
+        </form>
+        <a href="{{ url_for('index') }}">Back to Map</a>
+    </div>
+</body>
+</html>

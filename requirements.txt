@@ -17,3 +17,5 @@ aiofiles
 redis
 tenacity
 pydantic
+SQLAlchemy==1.4.46
+GeoAlchemy2==0.12.5

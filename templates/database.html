@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Database Management</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Database Management</h1>
+        <div id="feedback-container"></div>
+        
+        <h2>Waco Boundaries</h2>
+        <form id="add-boundary-form">
+            <input type="text" id="boundary-name" placeholder="Boundary Name" required>
+            <input type="file" id="boundary-file" accept=".geojson" required>
+            <button type="submit">Add Boundary</button>
+        </form>
+        
+        <h2>Waco Streets</h2>
+        <form id="add-streets-form">
+            <input type="file" id="streets-file" accept=".geojson" required>
+            <button type="submit">Add Streets</button>
+        </form>
+        
+        <h2>Historical Data</h2>
+        <form id="add-historical-data-form">
+            <input type="file" id="historical-data-file" accept=".geojson" required>
+            <button type="submit">Add Historical Data</button>
+        </form>
+        
+        <h2>Database Statistics</h2>
+        <div id="db-stats"></div>
+        
+        <a href="{{ url_for('index') }}">Back to Map</a>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/database.js') }}"></script>
+</body>
+</html>
