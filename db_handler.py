@@ -1,31 +1,29 @@
 import os
 import json
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from models import Base, User, WacoBoundary, WacoStreet, HistoricalData, LiveRoute
 from geoalchemy2.shape import from_shape
 from shapely.geometry import shape, LineString, MultiPolygon
 from datetime import datetime, timezone
 import logging
-from sqlalchemy import event, text
 from sqlalchemy import func
-from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger(__name__)
 
 class DatabaseHandler:
     def __init__(self, db_url='sqlite:///every_street.db'):
         self.engine = create_engine(db_url)
-        
+
         @event.listens_for(self.engine, "connect")
         def load_spatialite(dbapi_conn, connection_record):
             dbapi_conn.enable_load_extension(True)
             dbapi_conn.load_extension('/opt/homebrew/lib/mod_spatialite.dylib')
             dbapi_conn.enable_load_extension(False)
-        
+
             # Initialize SpatiaLite metadata
             dbapi_conn.execute("SELECT InitSpatialMetaData(1)")
-        
+
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
 
@@ -103,14 +101,22 @@ class DatabaseHandler:
         for feature in data['features']:
             timestamp = datetime.fromtimestamp(feature['properties']['timestamp'])
             geometry = shape(feature['geometry'])
-            historical_data = HistoricalData(timestamp=timestamp, geometry=from_shape(geometry, srid=4326))
+            speed = feature['properties'].get('speed')
+            heading = feature['properties'].get('heading')
+            historical_data = HistoricalData(timestamp=timestamp, geometry=from_shape(geometry, srid=4326),
+                                             speed=speed, heading=heading)
             session.add(historical_data)
         session.commit()
         session.close()
 
     def get_historical_data(self, start_date, end_date):
         session = self.get_session()
-        data = session.query(HistoricalData).filter(HistoricalData.timestamp.between(start_date, end_date)).all()
+        query = session.query(HistoricalData)
+        if start_date:
+            query = query.filter(HistoricalData.timestamp >= start_date)
+        if end_date:
+            query = query.filter(HistoricalData.timestamp <= end_date)
+        data = query.all()
         session.close()
         return data
 
@@ -143,7 +149,7 @@ class DatabaseHandler:
         }
         session.close()
         return stats
-    
+
     def get_latest_historical_timestamp(self):
         session = self.get_session()
         latest = session.query(func.max(HistoricalData.timestamp)).scalar()
@@ -162,15 +168,25 @@ class DatabaseHandler:
         session.commit()
         session.close()
 
+    def reset_street_progress(self):
+        session = self.get_session()
+        try:
+            session.query(WacoStreet).update({WacoStreet.traveled: False})
+            session.commit()
+            logger.info("Street progress reset successfully")
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Error resetting street progress: {str(e)}")
+            raise
+        finally:
+            session.close()
+
     def update_historical_data_schema(self):
         try:
             with self.engine.connect() as connection:
-                connection.execute(text("ALTER TABLE historical_data ADD COLUMN speed FLOAT"))
-                connection.execute(text("ALTER TABLE historical_data ADD COLUMN heading INTEGER"))
+                connection.execute(text("ALTER TABLE historical_data ADD COLUMN IF NOT EXISTS speed FLOAT"))
+                connection.execute(text("ALTER TABLE historical_data ADD COLUMN IF NOT EXISTS heading INTEGER"))
             logger.info("Updated historical_data schema successfully")
-        except OperationalError as e:
-            if "duplicate column name" in str(e):
-                logger.info("Columns already exist in historical_data table")
-            else:
-                logger.error(f"Error updating historical_data schema: {e}")
-                raise
+        except Exception as e:
+            logger.error(f"Error updating historical_data schema: {e}")
+            raise

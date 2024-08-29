@@ -1,115 +1,110 @@
 import logging
-import geopandas as gpd
-import pandas as pd
-from shapely.geometry import LineString, box, Polygon, MultiPolygon
-from shapely.ops import transform, unary_union
-from rtree import index
-import pyproj
+from geoalchemy2.shape import from_shape, to_shape
+from shapely.geometry import LineString, Point, shape
+from sqlalchemy import func
+from models import WacoStreet, HistoricalData, WacoBoundary
+from sqlalchemy.orm import Session
+from typing import List, Dict, Any
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 class WacoStreetsAnalyzer:
-    def __init__(self, waco_streets_file, snap_distance=0.0001):
-        logger.info("Initializing WacoStreetsAnalyzer...")
-        try:
-            self.streets_gdf = gpd.read_file(waco_streets_file)
-            self.streets_gdf['street_id'] = self.streets_gdf['street_id'].astype(str)
-            self.snap_distance = snap_distance
-            self.traveled_streets = set()
-            self.spatial_index = index.Index()
-            self._create_spatial_index()
+    def __init__(self, db_session: Session):
+        self.db_session = db_session
 
-            logger.info(f"Processed {len(self.streets_gdf)} streets.")
+    async def update_progress(self, historical_features: List[Dict[str, Any]]):
+        try:
+            # Get all streets
+            streets = self.db_session.query(WacoStreet).all()
+            
+            # Create a spatial index for the streets
+            street_index = {street.id: to_shape(street.geometry) for street in streets}
+
+            for feature in historical_features:
+                route = shape(feature['geometry'])
+                for street_id, street_geom in street_index.items():
+                    if route.intersects(street_geom):
+                        street = self.db_session.query(WacoStreet).get(street_id)
+                        street.traveled = True
+
+            self.db_session.commit()
+            logger.info("Street progress updated successfully")
         except Exception as e:
-            logger.error(f"Error initializing WacoStreetsAnalyzer: {str(e)}")
+            self.db_session.rollback()
+            logger.error(f"Error updating street progress: {str(e)}")
             raise
 
-    def _create_spatial_index(self):
-        for idx, street in self.streets_gdf.iterrows():
-            self.spatial_index.insert(idx, street.geometry.bounds)
+    def analyze_coverage(self) -> Dict[str, Any]:
+        try:
+            total_streets = self.db_session.query(func.count(WacoStreet.id)).scalar()
+            traveled_streets = self.db_session.query(func.count(WacoStreet.id)).filter(WacoStreet.traveled == True).scalar()
+            
+            coverage_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
 
-    async def update_progress(self, new_routes):
-        logger.info(f"Updating progress with {len(new_routes)} new routes...")
-        new_streets = await self._process_routes(new_routes)
-        self.traveled_streets.update(new_streets)
-        logger.info(f"Progress update complete. Overall progress: {self.calculate_progress():.2f}%")
-
-    async def _process_routes(self, routes):
-        new_streets = set()
-        for route in routes:
-            route_line = LineString(route['geometry']['coordinates'])
-            possible_matches_idx = list(self.spatial_index.intersection(route_line.bounds))
-            possible_matches = self.streets_gdf.iloc[possible_matches_idx]
-            precise_matches = possible_matches[possible_matches.intersects(route_line.buffer(self.snap_distance))]
-            new_streets.update(precise_matches['street_id'].tolist())
-        return new_streets
-
-    def reset_progress(self):
-        logger.info("Resetting progress...")
-        self.traveled_streets.clear()
-
-    def calculate_progress(self):
-        logger.info("Calculating progress...")
-        total_streets = len(self.streets_gdf)
-        return (len(self.traveled_streets) / total_streets) * 100 if total_streets > 0 else 0
-
-    def get_progress_geojson(self, waco_boundary='city_limits'):
-        logger.info("Generating progress GeoJSON...")
-        waco_limits = None
-        if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
-
-        self.streets_gdf['traveled'] = self.streets_gdf['street_id'].isin(self.traveled_streets)
-
-        features = [
-            {
-                "type": "Feature",
-                "geometry": street.geometry.__geo_interface__,
-                "properties": {
-                    "street_id": street.street_id,
-                    "traveled": street.traveled,
-                    "color": "#00ff00" if street.traveled else "#ff0000"
-                }
+            return {
+                "total_streets": total_streets,
+                "traveled_streets": traveled_streets,
+                "coverage_percentage": coverage_percentage
             }
-            for street in self.streets_gdf.itertuples() if waco_limits is None or street.geometry.intersects(waco_limits)
-        ]
-        return {"type": "FeatureCollection", "features": features}
+        except Exception as e:
+            logger.error(f"Error analyzing coverage: {str(e)}")
+            raise
 
-    def get_untraveled_streets(self, waco_boundary='city_limits'):
-        logger.info("Generating untraveled streets...")
-        waco_limits = None
-        if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+    def get_progress_geojson(self, waco_boundary: str = 'city_limits') -> Dict[str, Any]:
+        try:
+            boundary = self.db_session.query(WacoBoundary).filter_by(name=waco_boundary).first()
+            if not boundary:
+                raise ValueError(f"Waco boundary '{waco_boundary}' not found")
 
-        untraveled_streets = self.streets_gdf[~self.streets_gdf['street_id'].isin(self.traveled_streets)]
-        if waco_limits is not None:
-            untraveled_streets = untraveled_streets[untraveled_streets.intersects(waco_limits)]
+            boundary_shape = to_shape(boundary.geometry)
+            streets = self.db_session.query(WacoStreet).all()
+            
+            features = []
+            for street in streets:
+                geom = to_shape(street.geometry)
+                if geom.intersects(boundary_shape):
+                    feature = {
+                        "type": "Feature",
+                        "geometry": geom.__geo_interface__,
+                        "properties": {
+                            "street_id": street.street_id,
+                            "traveled": street.traveled,
+                            "color": "#00ff00" if street.traveled else "#ff0000"
+                        }
+                    }
+                    features.append(feature)
 
-        return untraveled_streets
+            return {"type": "FeatureCollection", "features": features}
+        except Exception as e:
+            logger.error(f"Error getting progress GeoJSON: {str(e)}")
+            raise
 
-    def analyze_coverage(self, waco_boundary='city_limits'):
-        logger.info("Analyzing street coverage...")
-        waco_limits = None
-        if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+    def get_untraveled_streets(self, waco_boundary: str = 'city_limits') -> List[WacoStreet]:
+        try:
+            boundary = self.db_session.query(WacoBoundary).filter_by(name=waco_boundary).first()
+            if not boundary:
+                raise ValueError(f"Waco boundary '{waco_boundary}' not found")
 
-        total_streets = self.streets_gdf.intersects(waco_limits).sum() if waco_limits else len(self.streets_gdf)
-        traveled_streets = len(self.traveled_streets)
-        coverage_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
+            boundary_shape = to_shape(boundary.geometry)
+            untraveled_streets = self.db_session.query(WacoStreet).filter(
+                WacoStreet.traveled == False,
+                func.ST_Intersects(WacoStreet.geometry, boundary.geometry)
+            ).all()
+            return untraveled_streets
+        except Exception as e:
+            logger.error(f"Error getting untraveled streets: {str(e)}")
+            raise
 
-        return {"total_streets": total_streets, "traveled_streets": traveled_streets, "coverage_percentage": coverage_percentage}
+    def get_street_network(self, waco_boundary: str = 'city_limits') -> List[WacoStreet]:
+        try:
+            boundary = self.db_session.query(WacoBoundary).filter_by(name=waco_boundary).first()
+            if not boundary:
+                raise ValueError(f"Waco boundary '{waco_boundary}' not found")
 
-    def get_street_network(self, waco_boundary='city_limits'):
-        logger.info("Retrieving street network...")
-        waco_limits = None
-        if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
-
-        street_network = self.streets_gdf.copy()
-        if waco_limits:
-            street_network = street_network[street_network.intersects(waco_limits)]
-
-        street_network['traveled'] = street_network['street_id'].isin(self.traveled_streets)
-
-        return street_network
+            streets = self.db_session.query(WacoStreet).filter(
+                func.ST_Intersects(WacoStreet.geometry, boundary.geometry)
+            ).all()
+            return streets
+        except Exception as e:
+            logger.error(f"Error getting street network: {str(e)}")
+            raise
