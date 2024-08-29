@@ -18,7 +18,7 @@ const MAX_LOAD_ATTEMPTS = 3;
 let isLoadingHistoricalData = false;
 let progressBar, progressText;
 let wacoStreetsOpacity = 0.7;
-let wacoStreetsFilter = 'all';
+let wacoStreetsFilter = 'null';
 let untraveledStreetsLayer = null;
 
 // DOM elements
