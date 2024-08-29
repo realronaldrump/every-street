@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 import logging
 from sqlalchemy import event, text
 from sqlalchemy import func
+from sqlalchemy.exc import OperationalError
 
 logger = logging.getLogger(__name__)
 
@@ -160,3 +161,16 @@ class DatabaseHandler:
         session.add(new_point)
         session.commit()
         session.close()
+
+    def update_historical_data_schema(self):
+        try:
+            with self.engine.connect() as connection:
+                connection.execute(text("ALTER TABLE historical_data ADD COLUMN speed FLOAT"))
+                connection.execute(text("ALTER TABLE historical_data ADD COLUMN heading INTEGER"))
+            logger.info("Updated historical_data schema successfully")
+        except OperationalError as e:
+            if "duplicate column name" in str(e):
+                logger.info("Columns already exist in historical_data table")
+            else:
+                logger.error(f"Error updating historical_data schema: {e}")
+                raise

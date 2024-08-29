@@ -499,6 +499,7 @@ def create_app():
     async def startup():
         logger.info("Starting application initialization...")
         try:
+            app.db_handler.update_historical_data_schema()
             logger.info("Initializing historical data...")
             await load_historical_data_background()
             logger.info("Historical data initialized")
