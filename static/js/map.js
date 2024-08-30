@@ -351,7 +351,7 @@ async function updateProgress() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        console.log("Progress data:", data);
+        
 
         if (progressBar && progressText && data.coverage_percentage !== undefined) {
             const newWidth = `${data.coverage_percentage}%`;
@@ -375,27 +375,27 @@ async function updateProgress() {
 }
 
 async function toggleUntraveledStreets() {
-    console.log("Toggling untraveled streets");
+    
     if (untraveledStreetsLayer && map) {
-        console.log("Removing untraveled streets layer");
+        
         map.removeLayer(untraveledStreetsLayer);
         untraveledStreetsLayer = null;
         showFeedback('Untraveled streets hidden', 'info');
     } else {
-        console.log("Loading untraveled streets");
+        
         await loadUntraveledStreets();
     }
 }
 
 async function loadUntraveledStreets() {
     try {
-        console.log(`Fetching untraveled streets: boundary=${wacoBoundarySelect.value}`);
+        
         const response = await fetch(`/untraveled_streets?wacoBoundary=${wacoBoundarySelect.value}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        console.log(`Received untraveled streets data: ${data.features.length} features`);
+        
 
         untraveledStreetsLayer = L.geoJSON(data, {
             style: function() {
@@ -411,7 +411,7 @@ async function loadUntraveledStreets() {
             untraveledStreetsLayer.addTo(map);
         }
 
-        console.log("Added untraveled streets layer to map");
+        
         showFeedback('Untraveled streets displayed', 'success');
     } catch (error) {
         console.error('Error loading untraveled streets:', error);
@@ -420,30 +420,30 @@ async function loadUntraveledStreets() {
 }
 
 async function toggleWacoStreets() {
-    console.log("Toggling Waco streets");
+    
     if (wacoStreetsLayer && map) {
-        console.log("Removing Waco streets layer");
+        
         map.removeLayer(wacoStreetsLayer);
         wacoStreetsLayer = null;
         showFeedback('Waco streets hidden', 'info');
     } else {
-        console.log("Loading Waco streets");
+        
         await loadWacoStreets();
     }
 }
 
 async function loadWacoStreets() {
     try {
-        console.log(`Fetching Waco streets: boundary=${wacoBoundarySelect.value}, filter=${wacoStreetsFilter}`);
+        
         const response = await fetch(`/waco_streets?wacoBoundary=${wacoBoundarySelect.value}&filter=${wacoStreetsFilter}`);
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        console.log(`Received Waco streets data: ${data.features.length} features`);
+        
 
         if (wacoStreetsLayer && map) {
-            console.log("Removing existing Waco streets layer");
+            
             map.removeLayer(wacoStreetsLayer);
         }
 
@@ -466,7 +466,7 @@ async function loadWacoStreets() {
             wacoStreetsLayer.addTo(map);
         }
 
-        console.log("Added Waco streets layer to map");
+        
         showFeedback('Waco streets displayed', 'success');
     } catch (error) {
         console.error('Error loading Waco streets:', error);
@@ -982,7 +982,7 @@ async function checkHistoricalDataStatus() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         const data = await response.json();
-        console.log('Historical data status:', data);
+        
         historicalDataLoaded = data.loaded;
         historicalDataLoading = data.loading;
 
@@ -1237,7 +1237,7 @@ function setupEventListeners() {
 
     if (hideWacoStreetsBtn) {
         hideWacoStreetsBtn.addEventListener('click', () => {
-            console.log("Hide Waco streets button clicked");
+            
             if (wacoStreetsLayer && map) {
                 map.removeLayer(wacoStreetsLayer);
                 wacoStreetsLayer = null;
