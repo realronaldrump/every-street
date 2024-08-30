@@ -1,20 +1,21 @@
 import logging
-import geopandas as gpd
-import pandas as pd
-from shapely.geometry import LineString, box, Polygon, MultiPolygon
-from shapely.ops import transform, unary_union
-from rtree import index
-import pyproj
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+import geopandas as gpd
+from rtree import index
+from shapely.geometry import LineString
+
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 class WacoStreetsAnalyzer:
     def __init__(self, waco_streets_file, snap_distance=0.0001):
         logger.info("Initializing WacoStreetsAnalyzer...")
         try:
             self.streets_gdf = gpd.read_file(waco_streets_file)
-            self.streets_gdf['street_id'] = self.streets_gdf['street_id'].astype(str)
+            self.streets_gdf['street_id'] = self.streets_gdf['street_id'].astype(
+                str)
             self.snap_distance = snap_distance
             self.traveled_streets = set()
             self.spatial_index = index.Index()
@@ -33,15 +34,18 @@ class WacoStreetsAnalyzer:
         logger.info(f"Updating progress with {len(new_routes)} new routes...")
         new_streets = await self._process_routes(new_routes)
         self.traveled_streets.update(new_streets)
-        logger.info(f"Progress update complete. Overall progress: {self.calculate_progress():.2f}%")
+        logger.info(
+            f"Progress update complete. Overall progress: {self.calculate_progress():.2f}%")
 
     async def _process_routes(self, routes):
         new_streets = set()
         for route in routes:
             route_line = LineString(route['geometry']['coordinates'])
-            possible_matches_idx = list(self.spatial_index.intersection(route_line.bounds))
+            possible_matches_idx = list(
+                self.spatial_index.intersection(route_line.bounds))
             possible_matches = self.streets_gdf.iloc[possible_matches_idx]
-            precise_matches = possible_matches[possible_matches.intersects(route_line.buffer(self.snap_distance))]
+            precise_matches = possible_matches[possible_matches.intersects(
+                route_line.buffer(self.snap_distance))]
             new_streets.update(precise_matches['street_id'].tolist())
         return new_streets
 
@@ -58,9 +62,11 @@ class WacoStreetsAnalyzer:
         logger.info("Generating progress GeoJSON...")
         waco_limits = None
         if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+            waco_limits = gpd.read_file(
+                f"static/{waco_boundary}.geojson").geometry.unary_union
 
-        self.streets_gdf['traveled'] = self.streets_gdf['street_id'].isin(self.traveled_streets)
+        self.streets_gdf['traveled'] = self.streets_gdf['street_id'].isin(
+            self.traveled_streets)
 
         features = [
             {
@@ -80,11 +86,14 @@ class WacoStreetsAnalyzer:
         logger.info("Generating untraveled streets...")
         waco_limits = None
         if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+            waco_limits = gpd.read_file(
+                f"static/{waco_boundary}.geojson").geometry.unary_union
 
-        untraveled_streets = self.streets_gdf[~self.streets_gdf['street_id'].isin(self.traveled_streets)]
+        untraveled_streets = self.streets_gdf[~self.streets_gdf['street_id'].isin(
+            self.traveled_streets)]
         if waco_limits is not None:
-            untraveled_streets = untraveled_streets[untraveled_streets.intersects(waco_limits)]
+            untraveled_streets = untraveled_streets[untraveled_streets.intersects(
+                waco_limits)]
 
         return untraveled_streets
 
@@ -92,11 +101,14 @@ class WacoStreetsAnalyzer:
         logger.info("Analyzing street coverage...")
         waco_limits = None
         if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+            waco_limits = gpd.read_file(
+                f"static/{waco_boundary}.geojson").geometry.unary_union
 
-        total_streets = self.streets_gdf.intersects(waco_limits).sum() if waco_limits else len(self.streets_gdf)
+        total_streets = self.streets_gdf.intersects(
+            waco_limits).sum() if waco_limits else len(self.streets_gdf)
         traveled_streets = len(self.traveled_streets)
-        coverage_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
+        coverage_percentage = (
+            traveled_streets / total_streets) * 100 if total_streets > 0 else 0
 
         return {"total_streets": total_streets, "traveled_streets": traveled_streets, "coverage_percentage": coverage_percentage}
 
@@ -104,12 +116,15 @@ class WacoStreetsAnalyzer:
         logger.info("Retrieving street network...")
         waco_limits = None
         if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+            waco_limits = gpd.read_file(
+                f"static/{waco_boundary}.geojson").geometry.unary_union
 
         street_network = self.streets_gdf.copy()
         if waco_limits:
-            street_network = street_network[street_network.intersects(waco_limits)]
+            street_network = street_network[street_network.intersects(
+                waco_limits)]
 
-        street_network['traveled'] = street_network['street_id'].isin(self.traveled_streets)
+        street_network['traveled'] = street_network['street_id'].isin(
+            self.traveled_streets)
 
         return street_network
