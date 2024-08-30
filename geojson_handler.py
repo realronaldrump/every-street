@@ -290,7 +290,7 @@ class GeoJSONHandler:
                             logger.warning(
                                 f"Invalid timestamp for feature: {timestamp}")
                     else:
-                        logger.warning(f"Feature has no timestamp")
+                        logger.warning("Feature has no timestamp")
 
         logger.info(f"Filtered {len(filtered_features)} features")
         return filtered_features
