@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class WacoStreetsAnalyzer:
-    def __init__(self, waco_streets_file, snap_distance=0.0001):
+    def __init__(self, waco_streets_file, snap_distance=0.000001):
         logger.info("Initializing WacoStreetsAnalyzer...")
         try:
             self.streets_gdf = gpd.read_file(waco_streets_file)

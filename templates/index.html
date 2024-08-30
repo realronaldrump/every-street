@@ -151,10 +151,13 @@
                             <p id="progress-text">0% of Waco Streets Traveled</p>
                         </div>
                         <div class="stat-card animate__animated">
-                            <button id="toggleUntraveledBtn">Toggle Untraveled Streets</button>
-                            <button id="toggleWacoStreetsBtn">Toggle Waco Streets</button>
-                            <button id="hideWacoStreetsBtn">Hide Waco Streets</button>
-                            <button id="resetProgressBtn">Reset/Recalculate Progress</button>
+                            <select id="streets-select">
+                                <option value="all">All Streets</option>
+                                <option value="traveled">Traveled Streets</option>
+                                <option value="untraveled">Untraveled Streets</option>
+                            </select>
+                            <button id="toggleWacoStreetsBtn">Show/Hide All Waco Streets</button>
+                            <button id="resetProgressBtn">Recalculate Street Progress</button>
                         </div>
                     </div>
                 </div>
