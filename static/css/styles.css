@@ -257,8 +257,25 @@ button:disabled {
   max-width: 250px;
 }
 
+.map-control-group {
+  background-color: var(--secondary-bg);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+  box-shadow: 10px 10px 20px rgba(0, 0, 0, 0.3), 
+              -10px -10px 20px rgba(255, 255, 255, 0.05);
+}
+
 .map-control-item {
-  margin-bottom: 10px;
+  margin-bottom: 0.5rem; /* Reduced margin for better spacing */
+}
+
+.map-control-item input[type="checkbox"] {
+  margin-right: 0.5rem; /* Consistent margin with label */
+}
+
+.map-control-item label {
+  cursor: pointer; /* Make label clickable for checkbox */
 }
 
 #legend h4 {
