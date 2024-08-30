@@ -50,9 +50,8 @@ class GeoJSONHandler:
             gdf = gpd.read_file(f"static/{boundary_type}.geojson")
             if not gdf.empty:
                 return gdf.geometry.unary_union
-            else:
-                logger.error(f"No features found in {boundary_type}.geojson")
-                return None
+            logger.error(f"No features found in {boundary_type}.geojson")
+            return None
         except FileNotFoundError:
             logger.error(f"File not found: static/{boundary_type}.geojson")
             return None
