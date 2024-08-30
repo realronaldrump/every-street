@@ -993,7 +993,6 @@ async function filterAndDisplayData() {
     progressLayer.remove();
   }
 
-  // ... (rest of the display logic, like calculating total distance) ...
 }
 
 function setupEventListeners() {
@@ -1004,34 +1003,50 @@ function setupEventListeners() {
   filterWacoCheckbox.addEventListener('change', filterAndDisplayData);
   applyFilterBtn.addEventListener('click', filterAndDisplayData);
 
-  // Event listeners for layer control checkboxes
+  // Event listeners for layer control checkboxes (updated)
   historicalDataCheckbox.addEventListener('change', () => {
-    if (historicalDataCheckbox.checked && historicalDataLayer) {
-      historicalDataLayer.addTo(map);
+    if (historicalDataCheckbox.checked) {
+      if (historicalDataLayer) {
+        historicalDataLayer.addTo(map);
+      } else {
+        displayHistoricalData(); // Load and display if not already loaded
+      }
     } else if (historicalDataLayer) {
       historicalDataLayer.remove();
     }
   });
 
   wacoStreetsCheckbox.addEventListener('change', () => {
-    if (wacoStreetsCheckbox.checked && wacoStreetsLayer) {
-      wacoStreetsLayer.addTo(map);
+    if (wacoStreetsCheckbox.checked) {
+      if (wacoStreetsLayer) {
+        wacoStreetsLayer.addTo(map);
+      } else {
+        loadWacoStreets(); // Load and display if not already loaded
+      }
     } else if (wacoStreetsLayer) {
       wacoStreetsLayer.remove();
     }
   });
 
   wacoLimitsCheckbox.addEventListener('change', () => {
-    if (wacoLimitsCheckbox.checked && wacoLimits) {
-      wacoLimits.addTo(map);
+    if (wacoLimitsCheckbox.checked) {
+      if (wacoLimits) {
+        wacoLimits.addTo(map);
+      } else {
+        loadWacoLimits(wacoBoundarySelect.value); // Load and display if not already loaded
+      }
     } else if (wacoLimits) {
       wacoLimits.remove();
     }
   });
 
   progressLayerCheckbox.addEventListener('change', () => {
-    if (progressLayerCheckbox.checked && progressLayer) {
-      progressLayer.addTo(map);
+    if (progressLayerCheckbox.checked) {
+      if (progressLayer) {
+        progressLayer.addTo(map);
+      } else {
+        loadProgressData(); // Load and display if not already loaded
+      }
     } else if (progressLayer) {
       progressLayer.remove();
     }
@@ -1277,32 +1292,47 @@ function animateStatUpdate(elementId, newValue) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-  checkHistoricalDataStatus(); // Start checking historical data status
-
-  loadLiveRouteData()
-      .then(() => {
-        initializeDataPolling();
-
-        fetch('/processing_status')
-            .then(response => response.json())
-            .then(data => {
-              if (data.isProcessing) {
-                isProcessing = true;
-                disableUI();
-                showFeedback('A background task is in progress. Please wait.', 'info');
-              } else {
-                initializeApp();
-              }
-            })
-            .catch(error => {
-              console.error('Error checking processing status:', error);
-              showFeedback('Error checking application status. Please refresh the page.', 'error');
-            });
-      })
-      .catch(error => {
-        console.error('Error loading initial live route data:', error);
-        showFeedback('Error loading initial live route data. Please refresh the page.', 'error');
-      });
-  setupEventListeners();
-  updateProgress();
-});
+    checkHistoricalDataStatus(); // Start checking historical data status
+  
+    loadLiveRouteData()
+        .then(() => {
+          initializeDataPolling();
+  
+          fetch('/processing_status')
+              .then(response => response.json())
+              .then(data => {
+                if (data.isProcessing) {
+                  isProcessing = true;
+                  disableUI();
+                  showFeedback('A background task is in progress. Please wait.', 'info');
+                } else {
+                  initializeApp();
+                }
+              })
+              .catch(error => {
+                console.error('Error checking processing status:', error);
+                showFeedback('Error checking application status. Please refresh the page.', 'error');
+              });
+        })
+        .catch(error => {
+          console.error('Error loading initial live route data:', error);
+          showFeedback('Error loading initial live route data. Please refresh the page.', 'error');
+        });
+  
+    setupEventListeners();
+    updateProgress();
+  
+    // Ensure layers are visible initially based on checkbox states
+    if (historicalDataCheckbox.checked && historicalDataLayer) {
+      historicalDataLayer.addTo(map);
+    }
+    if (wacoStreetsCheckbox.checked && wacoStreetsLayer) {
+      wacoStreetsLayer.addTo(map);
+    }
+    if (wacoLimitsCheckbox.checked && wacoLimits) {
+      wacoLimits.addTo(map);
+    }
+    if (progressLayerCheckbox.checked && progressLayer) {
+      progressLayer.addTo(map);
+    }
+  });
