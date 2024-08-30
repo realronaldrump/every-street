@@ -1,10 +1,7 @@
 import logging
 import geopandas as gpd
-import pandas as pd
-from shapely.geometry import LineString, box, Polygon, MultiPolygon
-from shapely.ops import transform, unary_union
+from shapely.geometry import LineString
 from rtree import index
-import pyproj
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
