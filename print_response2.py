@@ -1,6 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
-from bouncie_api import BouncieAPI, DEVICE_IMEI, VEHICLE_ID
+from bouncie_api import BouncieAPI, VEHICLE_ID
 import httpx
 
 async def main():

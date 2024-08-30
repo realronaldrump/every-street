@@ -1,11 +1,10 @@
-import os
 import json
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import sessionmaker
 from models import Base, User, WacoBoundary, WacoStreet, HistoricalData, LiveRoute
 from geoalchemy2.shape import from_shape
-from shapely.geometry import shape, LineString, MultiPolygon
-from datetime import datetime, timezone
+from shapely.geometry import shape
+from datetime import datetime
 import logging
 from sqlalchemy import func
 

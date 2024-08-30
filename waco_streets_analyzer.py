@@ -1,8 +1,8 @@
 import logging
-from geoalchemy2.shape import from_shape, to_shape
-from shapely.geometry import LineString, Point, shape
+from geoalchemy2.shape import to_shape
+from shapely.geometry import shape
 from sqlalchemy import func
-from models import WacoStreet, HistoricalData, WacoBoundary
+from models import WacoStreet, WacoBoundary
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 
