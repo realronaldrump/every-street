@@ -45,7 +45,8 @@ class GeoJSONHandler:
             min_lat, max_lat = min(min_lat, lat), max(max_lat, lat)
         return (min_lon, min_lat, max_lon, max_lat)
 
-    def load_waco_boundary(self, boundary_type):
+    @staticmethod
+    def load_waco_boundary(boundary_type):
         try:
             gdf = gpd.read_file(f"static/{boundary_type}.geojson")
             if not gdf.empty:
@@ -59,7 +60,8 @@ class GeoJSONHandler:
             logger.error(f"Error loading Waco boundary: {e}")
             return None
 
-    def filter_streets_by_boundary(self, streets_geojson, waco_limits):
+    @staticmethod
+    def filter_streets_by_boundary(streets_geojson, waco_limits):
         filtered_features = []
         for feature in streets_geojson['features']:
             street_geometry = shape(feature['geometry'])
@@ -67,7 +69,8 @@ class GeoJSONHandler:
                 filtered_features.append(feature)
         return {"type": "FeatureCollection", "features": filtered_features}
 
-    def clip_route_to_boundary(self, feature, waco_limits):
+    @staticmethod
+    def clip_route_to_boundary(feature, waco_limits):
         try:
             if isinstance(waco_limits, (Polygon, MultiPolygon)):
                 waco_polygon = waco_limits
@@ -279,7 +282,8 @@ class GeoJSONHandler:
             logger.error(f"Error updating progress: {str(e)}", exc_info=True)
             raise
 
-    def get_feature_timestamps(self, feature):
+    @staticmethod
+    def get_feature_timestamps(feature):
         coordinates = feature["geometry"]["coordinates"]
         timestamps = []
         for coord in coordinates:
@@ -293,7 +297,8 @@ class GeoJSONHandler:
                     logger.warning(f"Invalid timestamp format: {timestamp}")
         return timestamps
 
-    def create_geojson_features_from_trips(self, data):
+    @staticmethod
+    def create_geojson_features_from_trips(data):
         features = []
 
         for trip in data:

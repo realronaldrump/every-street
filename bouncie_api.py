@@ -170,7 +170,8 @@ class BouncieAPI:
             logger.error(f"Error updating historical data: {str(e)}")
             raise
     
-    def _parse_timestamp(self, timestamp_iso):
+    @staticmethod
+    def _parse_timestamp(timestamp_iso):
         try:
             timestamp_dt = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
             return int(timestamp_dt.timestamp())
@@ -178,7 +179,8 @@ class BouncieAPI:
             logger.error(f"Error converting timestamp: {e}")
             return None
 
-    def _get_battery_state(self, bouncie_status):
+    @staticmethod
+    def _get_battery_state(bouncie_status):
         return (
             "full"
             if bouncie_status == "normal"
@@ -187,7 +189,8 @@ class BouncieAPI:
             else "unknown"
         )
 
-    def _format_address(self, address):
+    @staticmethod
+    def _format_address(address):
         components = [
             address.get("place", ""),
             address.get("building", ""),
@@ -224,12 +227,14 @@ class BouncieAPI:
 
         return total_distance, total_time, max_speed, start_time, end_time
 
-    def _format_time(self, seconds):
+    @staticmethod
+    def _format_time(seconds):
         hours, remainder = divmod(seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
-    def _format_datetime(self, timestamp):
+    @staticmethod
+    def _format_datetime(timestamp):
         return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S") if timestamp else "N/A"
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
