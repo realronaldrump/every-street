@@ -330,8 +330,7 @@ def create_app():
                     "longitude": location.longitude,
                     "address": location.address
                 })
-            else:
-                return jsonify({"error": "Location not found"}), 404
+            return jsonify({"error": "Location not found"}), 404
         except Exception as e:
             logger.error(f"Error during location search: {e}")
             return jsonify({"error": "An error occurred during the search"}), 500
@@ -348,8 +347,7 @@ def create_app():
                 suggestions = [{"address": location.address}
                                for location in locations]
                 return jsonify(suggestions)
-            else:
-                return jsonify([])
+            return jsonify([])
         except Exception as e:
             logger.error(f"Error during location search: {e}")
             return jsonify({"error": "An error occurred during the search"}), 500
@@ -446,8 +444,7 @@ def create_app():
             if pin == app.config["PIN"]:
                 session["authenticated"] = True
                 return redirect(url_for("index"))
-            else:
-                return await render_template("login.html", error="Invalid PIN. Please try again.")
+            return await render_template("login.html", error="Invalid PIN. Please try again.")
         return await render_template("login.html")
 
     @app.route("/logout", methods=["GET", "POST"])

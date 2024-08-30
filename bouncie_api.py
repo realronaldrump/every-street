@@ -85,8 +85,7 @@ class BouncieAPI:
             )
             if location:
                 return self._format_address(location.raw["address"])
-            else:
-                return "N/A"
+            return "N/A"
         except Exception as e:
             logger.error(f"Reverse geocoding failed with error: {e}")
             raise
@@ -101,9 +100,8 @@ class BouncieAPI:
             if response.status == 200:
                 logger.info(f"Successfully fetched data for {date}")
                 return await response.json()
-            else:
-                logger.error(f"Error fetching data for {date}. Status: {response.status}")
-                response.raise_for_status()
+            logger.error(f"Error fetching data for {date}. Status: {response.status}")
+            response.raise_for_status()
 
     async def get_trip_metrics(self):
         time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
