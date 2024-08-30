@@ -1,6 +1,9 @@
 import asyncio
-from bouncie_api import BouncieAPI, DEVICE_IMEI
+
 import httpx
+
+from bouncie_api import DEVICE_IMEI, BouncieAPI
+
 
 async def main():
     bouncie_api = BouncieAPI()
