@@ -5,16 +5,11 @@ import logging
 from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import geopandas as gpd
-import aiohttp
 from shapely.geometry import Polygon, MultiPolygon, LineString, MultiLineString, box, shape
-from shapely.ops import unary_union
 from rtree import index
 import aiofiles
 from bouncie_api import BouncieAPI
-from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
-from waco_streets_analyzer import WacoStreetsAnalyzer
-from functools import partial
-from multiprocessing import Pool, cpu_count
+from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, days_ago
 
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 

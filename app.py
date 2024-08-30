@@ -8,16 +8,14 @@ from quart import Quart, render_template, jsonify, request, Response, redirect, 
 from quart_cors import cors
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HyperConfig
-from dotenv import load_dotenv
 from bouncie_api import BouncieAPI
 from gpx_exporter import GPXExporter
 from geopy.geocoders import Nominatim
-from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range, days_ago
+from date_utils import parse_date
 from waco_streets_analyzer import WacoStreetsAnalyzer
 import multiprocessing
 from db_handler import DatabaseHandler
-from sqlalchemy.exc import SQLAlchemyError, OperationalError
-from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 # Set up logging
 LOG_DIRECTORY = "logs"
