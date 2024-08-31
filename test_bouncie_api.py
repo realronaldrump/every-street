@@ -1,9 +1,12 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+
 from dotenv import load_dotenv
+
 from bouncie_api import BouncieAPI
 
 load_dotenv()  # This will load environment variables from a .env file
+
 
 async def test_bouncie_api():
     # Initialize the BouncieAPI
