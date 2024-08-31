@@ -619,11 +619,11 @@ if __name__ == "__main__":
     multiprocessing.set_start_method('spawn')
 
     async def run_app():
-        app = main()
-        config = HyperConfig()
-        config.bind = ["0.0.0.0:8080"]
-        config.workers = 1
-        config.startup_timeout = 36000
+        app_local = main()
+        config_local = HyperConfig()
+        config_local.bind = ["0.0.0.0:8080"]
+        config_local.workers = 1
+        config_local.startup_timeout = 36000
         logger.info("Starting Hypercorn server...")
         try:
             loop = asyncio.get_running_loop()
