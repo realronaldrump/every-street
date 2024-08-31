@@ -12,7 +12,8 @@ from typing import Optional
 from geopy.geocoders import Nominatim
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HyperConfig
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ValidationInfo
+from pydantic_settings import BaseSettings
 from quart import (Quart, Response, jsonify, redirect, render_template,
                    request, session, url_for)
 from quart_cors import cors
@@ -22,6 +23,8 @@ from date_utils import date_range, format_date
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
 from waco_streets_analyzer import WacoStreetsAnalyzer
+from typing import Optional
+
 
 # Set up logging
 LOG_DIRECTORY = "logs"
@@ -54,7 +57,7 @@ class DateRange(BaseModel):
     end_date: date = Field(..., description="End date of the range")
 
     @field_validator('end_date')
-    def end_date_must_be_after_start_date(cls, v, info):
+    def end_date_must_be_after_start_date(cls, v: date, info: ValidationInfo) -> date:
         start_date = info.data.get('start_date')
         if start_date and v < start_date:
             raise ValueError('end_date must be after start_date')
@@ -71,7 +74,7 @@ class HistoricalDataParams(BaseModel):
         None, description="Bounding box for filtering data")
 
     @field_validator('bounds')
-    def validate_bounds(cls, v):
+    def validate_bounds(cls, v: Optional[list], info: ValidationInfo) -> Optional[list]:
         if v is not None:
             if len(v) != 4:
                 raise ValueError('bounds must be a list of 4 float values')
@@ -80,11 +83,36 @@ class HistoricalDataParams(BaseModel):
         return v
 
 
+class Config(BaseSettings):
+    SECRET_KEY: str = "your_secret_key"
+    PIN: str
+    CLIENT_ID: str
+    CLIENT_SECRET: str
+    REDIRECT_URI: str
+    AUTH_CODE: str
+    VEHICLE_ID: str
+    DEVICE_IMEI: str
+    ENABLE_GEOCODING: bool = False
+    GOOGLE_MAPS_API: str
+    REDIS_URL: str
+    DEBUG: bool = False
+    ANTHROPIC_API_KEY: str
+    OPENAI_API_KEY: str
+    USERNAME: str
+    PASSWORD: str
+
+    class Config:
+        env_file = ".env"
+        env_file_encoding = 'utf-8'
+        case_sensitive = False
+
+config = Config()
+
+
 def create_app():
     app = Quart(__name__)
     app = cors(app)
-    app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key")
-    app.config["PIN"] = os.getenv("PIN")
+    app.config.from_mapping({k: v for k, v in config.dict().items() if k not in ['Config']})
 
     # Initialize app attributes
     app.historical_data_loaded = False
@@ -215,30 +243,22 @@ def create_app():
     @app.route("/historical_data")
     async def get_historical_data():
         async with app.historical_data_lock:
-            start_date = request.args.get("startDate") or "2020-01-01"
-            end_date = request.args.get("endDate") or datetime.now(
-                timezone.utc).strftime("%Y-%m-%d")
-
             try:
                 params = HistoricalDataParams(
                     date_range=DateRange(
-                        start_date=start_date,
-                        end_date=end_date
+                        start_date=request.args.get("startDate") or "2020-01-01",
+                        end_date=request.args.get("endDate") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
                     ),
-                    filter_waco=request.args.get(
-                        "filterWaco", "false").lower() == "true",
-                    waco_boundary=request.args.get(
-                        "wacoBoundary", "city_limits"),
-                    bounds=[float(x) for x in request.args.get("bounds", "").split(
-                        ",")] if request.args.get("bounds") else None
+                    filter_waco=request.args.get("filterWaco", "false").lower() == "true",
+                    waco_boundary=request.args.get("wacoBoundary", "city_limits"),
+                    bounds=[float(x) for x in request.args.get("bounds", "").split(",")] if request.args.get("bounds") else None
                 )
 
                 logger.info(f"Received request for historical data: {params}")
 
                 waco_limits = None
                 if params.filter_waco and params.waco_boundary != "none":
-                    waco_limits = app.geojson_handler.load_waco_boundary(
-                        params.waco_boundary)
+                    waco_limits = app.geojson_handler.load_waco_boundary(params.waco_boundary)
 
                 filtered_features = await app.geojson_handler.filter_geojson_features(
                     params.date_range.start_date.isoformat(),
@@ -248,8 +268,11 @@ def create_app():
                     bounds=params.bounds
                 )
 
-                result = {"type": "FeatureCollection", "features": filtered_features,
-                          "total_features": len(filtered_features)}
+                result = {
+                    "type": "FeatureCollection",
+                    "features": filtered_features,
+                    "total_features": len(filtered_features)
+                }
 
                 return jsonify(result)
 
@@ -257,8 +280,7 @@ def create_app():
                 logger.error(f"Error parsing parameters: {str(e)}")
                 return jsonify({"error": f"Invalid parameter: {str(e)}"}), 400
             except Exception as e:
-                logger.error(
-                    f"Error filtering historical data: {str(e)}", exc_info=True)
+                logger.error(f"Error filtering historical data: {str(e)}", exc_info=True)
                 return jsonify({"error": f"Error filtering historical data: {str(e)}"}), 500
 
     @app.route("/live_data")
