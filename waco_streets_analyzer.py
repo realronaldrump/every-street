@@ -1,7 +1,7 @@
 import logging
-import numpy as np
 
 import geopandas as gpd
+import numpy as np
 from rtree import index
 from shapely.geometry import LineString
 
@@ -44,18 +44,24 @@ class WacoStreetsAnalyzer:
                 for idx, street in self.streets_gdf.iterrows():
                     try:
                         if line.intersects(street.geometry):
-                            distance = line.intersection(street.geometry).length
+                            distance = line.intersection(
+                                street.geometry).length
                             if not np.isnan(distance) and not np.isinf(distance):
                                 if 'traveled_length' not in self.streets_gdf.columns:
                                     self.streets_gdf['traveled_length'] = 0.0
-                                self.streets_gdf.at[idx, 'traveled_length'] += distance
+                                self.streets_gdf.at[idx,
+                                                    'traveled_length'] += distance
                             else:
-                                logging.warning(f"Invalid distance calculated for street {idx}")
+                                logging.warning(
+                                    f"Invalid distance calculated for street {idx}")
                     except Exception as e:
-                        logging.error(f"Error processing street {idx}: {str(e)}")
-        
-        self.streets_gdf['traveled_percentage'] = (self.streets_gdf['traveled_length'] / self.streets_gdf['length']) * 100
-        self.streets_gdf['traveled_percentage'] = self.streets_gdf['traveled_percentage'].clip(0, 100)
+                        logging.error(
+                            f"Error processing street {idx}: {str(e)}")
+
+        self.streets_gdf['traveled_percentage'] = (
+            self.streets_gdf['traveled_length'] / self.streets_gdf['length']) * 100
+        self.streets_gdf['traveled_percentage'] = self.streets_gdf['traveled_percentage'].clip(
+            0, 100)
         logging.info("Progress update completed.")
 
     async def _process_routes(self, routes):
@@ -65,15 +71,16 @@ class WacoStreetsAnalyzer:
             possible_matches_idx = list(
                 self.spatial_index.intersection(route_line.bounds))
             possible_matches = self.streets_gdf.iloc[possible_matches_idx]
-            
+
             for _, street in possible_matches.iterrows():
                 if route_line.distance(street.geometry) <= self.snap_distance:
-                    intersection = route_line.intersection(street.geometry.buffer(self.snap_distance))
+                    intersection = route_line.intersection(
+                        street.geometry.buffer(self.snap_distance))
                     if not intersection.is_empty:
                         coverage_ratio = intersection.length / street.geometry.length
                         if coverage_ratio >= 0.5:  # Consider a street traveled if at least 50% is covered
                             new_streets.add(street['street_id'])
-        
+
         return new_streets
 
     def reset_progress(self):
@@ -84,16 +91,19 @@ class WacoStreetsAnalyzer:
         logger.info("Calculating progress...")
         total_streets = len(self.streets_gdf)
         traveled_streets = len(self.traveled_streets)
-        
+
         # Project to a suitable UTM zone for Waco, Texas (UTM zone 14N)
         projected_gdf = self.streets_gdf.to_crs(epsg=32614)
-        
+
         total_length = projected_gdf.geometry.length.sum()
-        traveled_length = projected_gdf[projected_gdf['street_id'].isin(self.traveled_streets)].geometry.length.sum()
-        
-        street_count_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
-        length_percentage = (traveled_length / total_length) * 100 if total_length > 0 else 0
-        
+        traveled_length = projected_gdf[projected_gdf['street_id'].isin(
+            self.traveled_streets)].geometry.length.sum()
+
+        street_count_percentage = (
+            traveled_streets / total_streets) * 100 if total_streets > 0 else 0
+        length_percentage = (traveled_length / total_length) * \
+            100 if total_length > 0 else 0
+
         return {
             'street_count_percentage': street_count_percentage,
             'length_percentage': length_percentage,
