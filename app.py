@@ -628,7 +628,7 @@ if __name__ == "__main__":
         try:
             loop = asyncio.get_running_loop()
             loop.set_exception_handler(handle_exception)
-            await serve(app, config)
+            await serve(app_local, config_local)
         except Exception as e:
             logger.error(
                 f"Error starting Hypercorn server: {str(e)}", exc_info=True)
