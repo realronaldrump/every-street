@@ -5,6 +5,7 @@ import logging
 import multiprocessing
 import os
 import sys
+import geopandas as gpd
 from datetime import date, datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Optional
@@ -207,10 +208,9 @@ def create_app():
                     "coverage_percentage": float(coverage_analysis["coverage_percentage"])
                 }), 200
             except Exception as e:
-                logger.error(
-                    f"Error updating progress: {str(e)}", exc_info=True)
+                logger.error(f"Error updating progress: {str(e)}", exc_info=True)
                 return jsonify({"error": f"Error updating progress: {str(e)}"}), 500
-
+            
     @app.route('/untraveled_streets')
     async def get_untraveled_streets():
         waco_boundary = request.args.get("wacoBoundary", "city_limits")
@@ -245,25 +245,19 @@ def create_app():
             try:
                 params = HistoricalDataParams(
                     date_range=DateRange(
-                        start_date=request.args.get(
-                            "startDate") or "2020-01-01",
-                        end_date=request.args.get("endDate") or datetime.now(
-                            timezone.utc).strftime("%Y-%m-%d")
+                        start_date=request.args.get("startDate") or "2020-01-01",
+                        end_date=request.args.get("endDate") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
                     ),
-                    filter_waco=request.args.get(
-                        "filterWaco", "false").lower() == "true",
-                    waco_boundary=request.args.get(
-                        "wacoBoundary", "city_limits"),
-                    bounds=[float(x) for x in request.args.get("bounds", "").split(
-                        ",")] if request.args.get("bounds") else None
+                    filter_waco=request.args.get("filterWaco", "false").lower() == "true",
+                    waco_boundary=request.args.get("wacoBoundary", "city_limits"),
+                    bounds=[float(x) for x in request.args.get("bounds", "").split(",")] if request.args.get("bounds") else None
                 )
 
                 logger.info(f"Received request for historical data: {params}")
 
                 waco_limits = None
                 if params.filter_waco and params.waco_boundary != "none":
-                    waco_limits = app.geojson_handler.load_waco_boundary(
-                        params.waco_boundary)
+                    waco_limits = app.geojson_handler.load_waco_boundary(params.waco_boundary)
 
                 filtered_features = await app.geojson_handler.filter_geojson_features(
                     params.date_range.start_date.isoformat(),
@@ -285,8 +279,7 @@ def create_app():
                 logger.error(f"Error parsing parameters: {str(e)}")
                 return jsonify({"error": f"Invalid parameter: {str(e)}"}), 400
             except Exception as e:
-                logger.error(
-                    f"Error filtering historical data: {str(e)}", exc_info=True)
+                logger.error(f"Error filtering historical data: {str(e)}", exc_info=True)
                 return jsonify({"error": f"Error filtering historical data: {str(e)}"}), 500
 
     @app.route("/live_data")
@@ -450,7 +443,8 @@ def create_app():
 
                 # Recalculate the progress using all historical data
                 all_routes = app.geojson_handler.get_all_routes()
-                await app.waco_analyzer.update_progress(all_routes)
+                all_routes_gdf = gpd.GeoDataFrame.from_features(all_routes)
+                await app.waco_analyzer.update_progress(all_routes_gdf)
 
                 # Update the progress file
                 await app.geojson_handler.update_all_progress()
@@ -458,8 +452,7 @@ def create_app():
                 logger.info("Progress reset and recalculated successfully")
                 return jsonify({"message": "Progress has been reset and recalculated successfully!"}), 200
             except Exception as e:
-                logger.error(
-                    f"An error occurred during the progress reset process: {e}")
+                logger.error(f"An error occurred during the progress reset process: {e}")
                 return jsonify({"error": f"An error occurred: {str(e)}"}), 500
             finally:
                 app.is_processing = False
