@@ -12,7 +12,7 @@ from typing import Optional
 from geopy.geocoders import Nominatim
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HyperConfig
-from pydantic import BaseModel, Field, field_validator, ValidationInfo
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings
 from quart import (Quart, Response, jsonify, redirect, render_template,
                    request, session, url_for)
@@ -23,7 +23,6 @@ from date_utils import date_range, format_date
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
 from waco_streets_analyzer import WacoStreetsAnalyzer
-
 
 # Set up logging
 LOG_DIRECTORY = "logs"
@@ -105,13 +104,15 @@ class Config(BaseSettings):
         env_file_encoding = 'utf-8'
         case_sensitive = False
 
+
 config = Config()
 
 
 def create_app():
     app = Quart(__name__)
     app = cors(app)
-    app.config.from_mapping({k: v for k, v in config.dict().items() if k not in ['Config']})
+    app.config.from_mapping(
+        {k: v for k, v in config.dict().items() if k not in ['Config']})
 
     # Initialize app attributes
     app.historical_data_loaded = False
@@ -191,7 +192,8 @@ def create_app():
                     "coverage_percentage": float(coverage_analysis["length_percentage"])
                 })
             except Exception as e:
-                logging.error(f"Error in get_progress: {str(e)}", exc_info=True)
+                logging.error(
+                    f"Error in get_progress: {str(e)}", exc_info=True)
                 return jsonify({"error": str(e)}), 500
 
     @app.route("/update_progress", methods=["POST"])
@@ -244,19 +246,25 @@ def create_app():
             try:
                 params = HistoricalDataParams(
                     date_range=DateRange(
-                        start_date=request.args.get("startDate") or "2020-01-01",
-                        end_date=request.args.get("endDate") or datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                        start_date=request.args.get(
+                            "startDate") or "2020-01-01",
+                        end_date=request.args.get("endDate") or datetime.now(
+                            timezone.utc).strftime("%Y-%m-%d")
                     ),
-                    filter_waco=request.args.get("filterWaco", "false").lower() == "true",
-                    waco_boundary=request.args.get("wacoBoundary", "city_limits"),
-                    bounds=[float(x) for x in request.args.get("bounds", "").split(",")] if request.args.get("bounds") else None
+                    filter_waco=request.args.get(
+                        "filterWaco", "false").lower() == "true",
+                    waco_boundary=request.args.get(
+                        "wacoBoundary", "city_limits"),
+                    bounds=[float(x) for x in request.args.get("bounds", "").split(
+                        ",")] if request.args.get("bounds") else None
                 )
 
                 logger.info(f"Received request for historical data: {params}")
 
                 waco_limits = None
                 if params.filter_waco and params.waco_boundary != "none":
-                    waco_limits = app.geojson_handler.load_waco_boundary(params.waco_boundary)
+                    waco_limits = app.geojson_handler.load_waco_boundary(
+                        params.waco_boundary)
 
                 filtered_features = await app.geojson_handler.filter_geojson_features(
                     params.date_range.start_date.isoformat(),
@@ -278,7 +286,8 @@ def create_app():
                 logger.error(f"Error parsing parameters: {str(e)}")
                 return jsonify({"error": f"Invalid parameter: {str(e)}"}), 400
             except Exception as e:
-                logger.error(f"Error filtering historical data: {str(e)}", exc_info=True)
+                logger.error(
+                    f"Error filtering historical data: {str(e)}", exc_info=True)
                 return jsonify({"error": f"Error filtering historical data: {str(e)}"}), 500
 
     @app.route("/live_data")
@@ -579,11 +588,14 @@ def create_app():
     return app
 
 # Error Handler
+
+
 def handle_exception(loop, context):
     msg = context.get("exception", context["message"])
     logger.error(f"Caught exception: {msg}")
     logger.info("Initiating shutdown due to exception...")
     asyncio.create_task(shutdown_app(loop))
+
 
 async def shutdown_app(loop):
     logger.info("Shutting down due to exception...")
@@ -595,8 +607,11 @@ async def shutdown_app(loop):
 app = create_app()
 
 # Main function
+
+
 def main():
     return app
+
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
@@ -625,10 +640,13 @@ if __name__ == "__main__":
     logger.info("Application has shut down.")
 
 # Custom exception handler
+
+
 def custom_exception_handler(exc_type, exc_value, exc_traceback):
     logger.error("Uncaught exception", exc_info=(
         exc_type, exc_value, exc_traceback))
     sys.exit(1)
+
 
 # Set the custom exception handler
 sys.excepthook = custom_exception_handler
