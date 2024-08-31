@@ -134,27 +134,33 @@ class GeoJSONHandler:
                             data = json.loads(await f.read())
                             month_features = data.get("features", [])
                             month_year = file.split('_')[2].split('.')[0]
-                            self.historical_geojson_features.extend(month_features)
+                            self.historical_geojson_features.extend(
+                                month_features)
                             self.monthly_data[month_year] = month_features
                             total_features += len(month_features)
 
                         for i, feature in enumerate(month_features):
                             bbox = self._calculate_bounding_box(feature)
-                            self.idx.insert(len(self.historical_geojson_features) - len(month_features) + i, bbox)
+                            self.idx.insert(
+                                len(self.historical_geojson_features) - len(month_features) + i, bbox)
 
                         pbar.update(1)
-                        pbar.set_postfix({"Total Features": total_features, "Current Month": month_year})
+                        pbar.set_postfix(
+                            {"Total Features": total_features, "Current Month": month_year})
 
-                logger.info(f"Loaded and indexed {total_features} features from {len(monthly_files)} monthly files")
+                logger.info(
+                    f"Loaded and indexed {total_features} features from {len(monthly_files)} monthly files")
 
                 if not self.historical_geojson_features:
-                    logger.warning("No historical data found in monthly files.")
+                    logger.warning(
+                        "No historical data found in monthly files.")
                     await self.update_historical_data(fetch_all=True)
 
                 await self.update_all_progress()
 
             except Exception as e:
-                logger.error(f"Unexpected error loading historical data: {str(e)}", exc_info=True)
+                logger.error(
+                    f"Unexpected error loading historical data: {str(e)}", exc_info=True)
                 raise Exception(f"Error loading historical data: {str(e)}")
 
     async def update_historical_data(self, fetch_all=False):
@@ -180,7 +186,8 @@ class GeoJSONHandler:
 
                 logger.info(f"Fetched {len(all_trips)} trips")
                 new_features = await self._process_trips_in_batches(all_trips)
-                logger.info(f"Created {len(new_features)} new features from trips")
+                logger.info(
+                    f"Created {len(new_features)} new features from trips")
 
                 if new_features:
                     await self._update_monthly_files(new_features)
@@ -190,7 +197,7 @@ class GeoJSONHandler:
                         bbox = self._calculate_bounding_box(feature)
                         self.idx.insert(
                             len(self.historical_geojson_features) - len(new_features) + i, bbox)
-                    
+
                     logger.info("Calling update_all_progress")
                     await self.update_all_progress()
                     logger.info("Finished update_all_progress")
@@ -308,7 +315,8 @@ class GeoJSONHandler:
             logger.info(f"Total features to process: {total_features}")
             if total_features > 0:
                 sample_feature = self.historical_geojson_features[0]
-                logger.info(f"Sample historical feature: {json.dumps(sample_feature, indent=2)}")
+                logger.info(
+                    f"Sample historical feature: {json.dumps(sample_feature, indent=2)}")
             with tqdm(total=total_features, desc="Updating progress", unit="feature") as pbar:
                 for i, feature in enumerate(self.historical_geojson_features):
                     await self.waco_analyzer.update_progress([feature])
@@ -321,7 +329,8 @@ class GeoJSONHandler:
                         })
 
             final_coverage = self.waco_analyzer.calculate_progress()
-            logger.info(f"Progress updated successfully. Street count coverage: {final_coverage['street_count_percentage']:.2f}%, Length coverage: {final_coverage['length_percentage']:.2f}%")
+            logger.info(
+                f"Progress updated successfully. Street count coverage: {final_coverage['street_count_percentage']:.2f}%, Length coverage: {final_coverage['length_percentage']:.2f}%")
             return final_coverage
         except Exception as e:
             logger.error(f"Error updating progress: {str(e)}", exc_info=True)
@@ -411,7 +420,8 @@ class GeoJSONHandler:
             logging.info(f"Raw coverage analysis: {coverage_analysis}")
             return coverage_analysis
         except Exception as e:
-            logging.error(f"Error updating Waco streets progress: {str(e)}", exc_info=True)
+            logging.error(
+                f"Error updating Waco streets progress: {str(e)}", exc_info=True)
             return None
 
     def get_all_routes(self):
