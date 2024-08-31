@@ -559,14 +559,11 @@ def create_app():
     return app
 
 # Error Handler
-
-
 def handle_exception(loop, context):
     msg = context.get("exception", context["message"])
     logger.error(f"Caught exception: {msg}")
     logger.info("Initiating shutdown due to exception...")
     asyncio.create_task(shutdown_app(loop))
-
 
 async def shutdown_app(loop):
     logger.info("Shutting down due to exception...")
@@ -578,11 +575,8 @@ async def shutdown_app(loop):
 app = create_app()
 
 # Main function
-
-
 def main():
     return app
-
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()
@@ -611,13 +605,10 @@ if __name__ == "__main__":
     logger.info("Application has shut down.")
 
 # Custom exception handler
-
-
 def custom_exception_handler(exc_type, exc_value, exc_traceback):
     logger.error("Uncaught exception", exc_info=(
         exc_type, exc_value, exc_traceback))
     sys.exit(1)
-
 
 # Set the custom exception handler
 sys.excepthook = custom_exception_handler
