@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class WacoStreetsAnalyzer:
-    def __init__(self, waco_streets_file, snap_distance=0.000001):
+    def __init__(self, waco_streets_file, snap_distance=0.00001):
         logger.info("Initializing WacoStreetsAnalyzer...")
         try:
             self.streets_gdf = gpd.read_file(waco_streets_file)
@@ -30,12 +30,12 @@ class WacoStreetsAnalyzer:
         for idx, street in self.streets_gdf.iterrows():
             self.spatial_index.insert(idx, street.geometry.bounds)
 
-    async def update_progress(self, new_routes):
-        logger.info(f"Updating progress with {len(new_routes)} new routes...")
-        new_streets = await self._process_routes(new_routes)
+    async def update_progress(self, routes):
+        logger.info(f"Updating progress with {len(routes)} new routes...")
+        new_streets = await self._process_routes(routes)
         self.traveled_streets.update(new_streets)
-        logger.info(
-            f"Progress update complete. Overall progress: {self.calculate_progress():.2f}%")
+        progress = self.calculate_progress()
+        logger.info(f"Progress update complete. Overall progress: {progress['length_percentage']:.2f}%")
 
     async def _process_routes(self, routes):
         new_streets = set()
@@ -44,9 +44,15 @@ class WacoStreetsAnalyzer:
             possible_matches_idx = list(
                 self.spatial_index.intersection(route_line.bounds))
             possible_matches = self.streets_gdf.iloc[possible_matches_idx]
-            precise_matches = possible_matches[possible_matches.intersects(
-                route_line.buffer(self.snap_distance))]
-            new_streets.update(precise_matches['street_id'].tolist())
+            
+            for _, street in possible_matches.iterrows():
+                if route_line.distance(street.geometry) <= self.snap_distance:
+                    intersection = route_line.intersection(street.geometry.buffer(self.snap_distance))
+                    if not intersection.is_empty:
+                        coverage_ratio = intersection.length / street.geometry.length
+                        if coverage_ratio >= 0.5:  # Consider a street traveled if at least 50% is covered
+                            new_streets.add(street['street_id'])
+        
         return new_streets
 
     def reset_progress(self):
@@ -56,7 +62,25 @@ class WacoStreetsAnalyzer:
     def calculate_progress(self):
         logger.info("Calculating progress...")
         total_streets = len(self.streets_gdf)
-        return (len(self.traveled_streets) / total_streets) * 100 if total_streets > 0 else 0
+        traveled_streets = len(self.traveled_streets)
+        
+        # Project to a suitable UTM zone for Waco, Texas (UTM zone 14N)
+        projected_gdf = self.streets_gdf.to_crs(epsg=32614)
+        
+        total_length = projected_gdf.geometry.length.sum()
+        traveled_length = projected_gdf[projected_gdf['street_id'].isin(self.traveled_streets)].geometry.length.sum()
+        
+        street_count_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
+        length_percentage = (traveled_length / total_length) * 100 if total_length > 0 else 0
+        
+        return {
+            'street_count_percentage': street_count_percentage,
+            'length_percentage': length_percentage,
+            'total_streets': total_streets,
+            'traveled_streets': traveled_streets,
+            'total_length': total_length,
+            'traveled_length': traveled_length
+        }
 
     def get_progress_geojson(self, waco_boundary='city_limits'):
         logger.info("Generating progress GeoJSON...")

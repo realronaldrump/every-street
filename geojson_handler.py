@@ -299,9 +299,8 @@ class GeoJSONHandler:
         try:
             logger.info("Updating progress for all historical data...")
             await self.waco_analyzer.update_progress(self.historical_geojson_features)
-            coverage = self.waco_analyzer.analyze_coverage()
-            logger.info(
-                f"Progress updated successfully. Coverage: {coverage['coverage_percentage']:.2f}%")
+            coverage = self.waco_analyzer.calculate_progress()
+            logger.info(f"Progress updated successfully. Street count coverage: {coverage['street_count_percentage']:.2f}%, Length coverage: {coverage['length_percentage']:.2f}%")
             return coverage
         except Exception as e:
             logger.error(f"Error updating progress: {str(e)}", exc_info=True)
@@ -387,12 +386,11 @@ class GeoJSONHandler:
 
     async def update_waco_streets_progress(self):
         try:
-            coverage_analysis = self.waco_analyzer.analyze_coverage()
+            coverage_analysis = self.waco_analyzer.calculate_progress()
             logging.info(f"Raw coverage analysis: {coverage_analysis}")
             return coverage_analysis
         except Exception as e:
-            logging.error(
-                f"Error updating Waco streets progress: {str(e)}", exc_info=True)
+            logging.error(f"Error updating Waco streets progress: {str(e)}", exc_info=True)
             return None
 
     def get_all_routes(self):

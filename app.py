@@ -188,11 +188,10 @@ def create_app():
                 return jsonify({
                     "total_streets": int(coverage_analysis["total_streets"]),
                     "traveled_streets": int(coverage_analysis["traveled_streets"]),
-                    "coverage_percentage": float(coverage_analysis["coverage_percentage"])
+                    "coverage_percentage": float(coverage_analysis["length_percentage"])
                 })
             except Exception as e:
-                logging.error(
-                    f"Error in get_progress: {str(e)}", exc_info=True)
+                logging.error(f"Error in get_progress: {str(e)}", exc_info=True)
                 return jsonify({"error": str(e)}), 500
 
     @app.route("/update_progress", methods=["POST"])
