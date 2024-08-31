@@ -13,7 +13,7 @@ class WacoStreetsAnalyzer:
         self.streets_gdf = gpd.read_file(streets_geojson_path)
         self.streets_gdf['street_id'] = self.streets_gdf.index
         self.streets_gdf = self.streets_gdf.to_crs(epsg=4326)
-        
+
         self.traveled_streets = set()
         self.snap_distance = 0.00000001
         self.spatial_index = index.Index()
@@ -36,12 +36,12 @@ class WacoStreetsAnalyzer:
                             self.traveled_streets.add(street['street_id'])
                     except Exception as e:
                         logging.error(f"Error processing street {idx}: {str(e)}")
-                
+
                 if intersected_streets == 0:
                     logging.warning(f"Route {route_index} did not intersect with any streets")
                 else:
                     logging.info(f"Route {route_index} intersected with {intersected_streets} streets")
-        
+
         logging.info(f"Total traveled streets: {len(self.traveled_streets)}")
         logging.info("Progress update completed.")
 
@@ -49,9 +49,9 @@ class WacoStreetsAnalyzer:
         logger.info("Calculating progress...")
         total_streets = len(self.streets_gdf)
         traveled_streets = len(self.traveled_streets)
-        
+
         street_count_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
-        
+
         return {
             'street_count_percentage': street_count_percentage,
             'length_percentage': street_count_percentage,  # Using street count as length percentage
