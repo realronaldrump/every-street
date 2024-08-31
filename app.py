@@ -521,13 +521,13 @@ def create_app():
         async with app.historical_data_lock:
             app.historical_data_loading = True
         try:
+            logger.info("Starting historical data load")
             await app.geojson_handler.load_historical_data()
             async with app.historical_data_lock:
                 app.historical_data_loaded = True
             logger.info("Historical data loaded successfully")
         except Exception as e:
-            logger.error(
-                f"Error loading historical data: {str(e)}", exc_info=True)
+            logger.error(f"Error loading historical data: {str(e)}", exc_info=True)
         finally:
             async with app.historical_data_lock:
                 app.historical_data_loading = False

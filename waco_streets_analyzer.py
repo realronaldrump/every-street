@@ -1,4 +1,5 @@
 import logging
+import numpy as np
 
 import geopandas as gpd
 from rtree import index
@@ -21,6 +22,10 @@ class WacoStreetsAnalyzer:
             self.spatial_index = index.Index()
             self._create_spatial_index()
 
+            # Initialize 'traveled_length' column if it doesn't exist
+            if 'traveled_length' not in self.streets_gdf.columns:
+                self.streets_gdf['traveled_length'] = 0.0
+
             logger.info(f"Processed {len(self.streets_gdf)} streets.")
         except Exception as e:
             logger.error(f"Error initializing WacoStreetsAnalyzer: {str(e)}")
@@ -31,11 +36,27 @@ class WacoStreetsAnalyzer:
             self.spatial_index.insert(idx, street.geometry.bounds)
 
     async def update_progress(self, routes):
-        logger.info(f"Updating progress with {len(routes)} new routes...")
-        new_streets = await self._process_routes(routes)
-        self.traveled_streets.update(new_streets)
-        progress = self.calculate_progress()
-        logger.info(f"Progress update complete. Overall progress: {progress['length_percentage']:.2f}%")
+        logging.info(f"Updating progress with {len(routes)} new routes...")
+        for route in routes:
+            if route['geometry']['type'] == 'LineString':
+                coords = route['geometry']['coordinates']
+                line = LineString(coords)
+                for idx, street in self.streets_gdf.iterrows():
+                    try:
+                        if line.intersects(street.geometry):
+                            distance = line.intersection(street.geometry).length
+                            if not np.isnan(distance) and not np.isinf(distance):
+                                if 'traveled_length' not in self.streets_gdf.columns:
+                                    self.streets_gdf['traveled_length'] = 0.0
+                                self.streets_gdf.at[idx, 'traveled_length'] += distance
+                            else:
+                                logging.warning(f"Invalid distance calculated for street {idx}")
+                    except Exception as e:
+                        logging.error(f"Error processing street {idx}: {str(e)}")
+        
+        self.streets_gdf['traveled_percentage'] = (self.streets_gdf['traveled_length'] / self.streets_gdf['length']) * 100
+        self.streets_gdf['traveled_percentage'] = self.streets_gdf['traveled_percentage'].clip(0, 100)
+        logging.info("Progress update completed.")
 
     async def _process_routes(self, routes):
         new_streets = set()

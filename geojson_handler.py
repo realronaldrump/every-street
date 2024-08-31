@@ -187,9 +187,9 @@ class GeoJSONHandler:
                         bbox = self._calculate_bounding_box(feature)
                         self.idx.insert(
                             len(self.historical_geojson_features) - len(new_features) + i, bbox)
-
                     await self.update_all_progress()
 
+                logger.info("Finished update_historical_data")
             except Exception as e:
                 logger.error(
                     f"An error occurred during historical data update: {e}", exc_info=True)

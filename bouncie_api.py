@@ -92,16 +92,20 @@ class BouncieAPI:
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def fetch_trip_data(self, session, vehicle_id, date, headers):
-        start_time = f"{date}T00:00:00-05:00"
-        end_time = f"{date}T23:59:59-05:00"
-        summary_url = f"https://www.bouncie.app/api/vehicles/{vehicle_id}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
+        try:
+            start_time = f"{date}T00:00:00-05:00"
+            end_time = f"{date}T23:59:59-05:00"
+            summary_url = f"https://www.bouncie.app/api/vehicles/{vehicle_id}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
-        async with session.get(summary_url, headers=headers) as response:
-            if response.status == 200:
-                logger.info(f"Successfully fetched data for {date}")
-                return await response.json()
-            logger.error(f"Error fetching data for {date}. Status: {response.status}")
-            response.raise_for_status()
+            async with session.get(summary_url, headers=headers) as response:
+                if response.status == 200:
+                    logger.info(f"Successfully fetched data for {date}")
+                    return await response.json()
+                logger.error(f"Error fetching data for {date}. Status: {response.status}")
+                response.raise_for_status()
+        except Exception as e:
+            logger.error(f"Error fetching trip data for {date}: {e}", exc_info=True)
+            return None
 
     async def get_trip_metrics(self):
         time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
@@ -191,6 +195,7 @@ class BouncieAPI:
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def fetch_historical_data(self, start_date, end_date):
         try:
+            logger.info(f"Fetching historical data from {start_date} to {end_date}")
             await self.client.get_access_token()
             headers = {
                 "Accept": "application/json",
@@ -204,8 +209,11 @@ class BouncieAPI:
                     tasks.append(self.fetch_trip_data(session, VEHICLE_ID, date_str, headers))
                     current_date += timedelta(days=1)
 
+                logger.info(f"Created {len(tasks)} tasks for fetching trip data")
                 results = await asyncio.gather(*tasks)
-                return [result for result in results if result]
+                valid_results = [result for result in results if result]
+                logger.info(f"Fetched {len(valid_results)} days of historical data")
+                return valid_results
         except Exception as e:
-            logger.error(f"Error fetching historical data: {e}")
+            logger.error(f"Error fetching historical data: {e}", exc_info=True)
             raise
