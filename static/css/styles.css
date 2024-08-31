@@ -356,7 +356,6 @@ button:disabled {
   font-weight: bold;
 }
 
-
 /* Stats Styles */
 #stats {
   display: grid;
@@ -517,7 +516,6 @@ audio[controls] {
   background-color: #d32f2f;
 }
 
-
 /* Responsive Adjustments */
 @media (max-width: 768px) {
   .container {
@@ -649,44 +647,7 @@ audio[controls] {
   border: 0;
 }
 
-/* Removed redundant/unused styles */
-.toggle-untraveled-btn {
-  display: none; 
-}
-
-#progress-container, 
-#progress-bar { /* This was defined twice */
-  display: none;
-}
-
-#toggleWacoStreetsBtn {
-  background-color: var(--accent-color);
-  color: var(--text-color);
-  border: none;
-  padding: 10px;
-  border-radius: var(--border-radius);
-  cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.3s ease;
-}
-
-#toggleWacoStreetsBtn:hover {
-  background-color: var(--accent-hover);
-}
-
-#legend .color-box {
-  display: inline-block;
-  width: 20px;
-  height: 20px;
-  margin-right: 5px;
-  vertical-align: middle;
-  border: 1px solid var(--text-color);
-}
-
-#legend .blue { background-color: blue; }
-#legend .green { background-color: green; }
-#legend .red { background-color: red; }
-
+/* Loading Overlay */
 .loading-overlay {
   position: fixed;
   top: 0;

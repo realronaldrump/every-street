@@ -1,5 +1,3 @@
-// map.js
-
 // Global variables
 let map, wacoLimits, liveMarker, historicalDataLayer, liveRoutePolyline, playbackAnimation,
     playbackPolyline, playbackMarker, liveRouteDataLayer;
@@ -100,15 +98,6 @@ function handleBackgroundTask(taskFunction, feedbackMessage) {
   };
 }
 
-document.addEventListener('DOMContentLoaded', function() {
-  document.querySelectorAll('#time-filters button').forEach(button => {
-    button.addEventListener('click', function() {
-      const period = this.getAttribute('data-filter');
-      filterRoutesBy(period);
-    });
-  });
-});
-
 // Function to disable UI elements
 function disableUI() {
   document.body.classList.add('processing');
@@ -207,6 +196,7 @@ function initializeMap() {
 
     return map;
 }
+
 // Function to load Waco city limits
 async function loadWacoLimits(boundaryType) {
   if (!filterWacoCheckbox.checked) {
@@ -350,6 +340,9 @@ async function updateProgress() {
     }
     const data = await response.json();
 
+    const progressBar = document.getElementById('progress-bar');
+    const progressText = document.getElementById('progress-text');
+
     if (progressBar && progressText && data.coverage_percentage !== undefined) {
       const newWidth = `${data.coverage_percentage}%`;
 
@@ -364,7 +357,7 @@ async function updateProgress() {
 
       progressText.textContent = `${data.coverage_percentage.toFixed(2)}% of Waco Streets Traveled`;
     } else {
-      console.error("Invalid progress data received or DOM elements not found");
+      console.warn("Progress data is incomplete or DOM elements not found");
     }
   } catch (error) {
     console.error('Error fetching progress:', error);
@@ -409,6 +402,20 @@ async function loadWacoStreets() {
   }
 }
 
+function initializeDataPolling() {
+  setInterval(async () => {
+    try {
+      const response = await fetch('/latest_bouncie_data');
+      const data = await response.json();
+      if (Object.keys(data).length > 0) {
+        updateLiveData(data);
+      }
+    } catch (error) {
+      console.error('Error fetching latest data:', error);
+    }
+  }, 1000); // Poll every second
+}
+
 async function initializeApp() {
   try {
     endDateInput.value = new Date().toISOString().slice(0, 10);
@@ -427,7 +434,6 @@ async function initializeApp() {
     setInterval(loadProgressData, 300000);
     setInterval(updateProgress, 60000);
 
-
     await new Promise(resolve => {
       const checkInterval = setInterval(async () => {
         await checkHistoricalDataStatus();
@@ -441,7 +447,6 @@ async function initializeApp() {
         }
       }, 5000);
     });
-
     await loadLiveRouteData();
     setInterval(updateLiveDataAndMetrics, 3000);
 
@@ -773,20 +778,6 @@ function clearDrawnShapes() {
   displayHistoricalData(); // Reload all data after clearing shapes
 }
 
-function initializeDataPolling() {
-  setInterval(async () => {
-    try {
-      const response = await fetch('/latest_bouncie_data');
-      const data = await response.json();
-      if (Object.keys(data).length > 0) {
-        updateLiveData(data);
-      }
-    } catch (error) {
-      console.error('Error fetching latest data:', error);
-    }
-  }, 1000); // Poll every second
-}
-
 function filterRoutesBy(period) {
   if (isLoadingHistoricalData) {
     showFeedback('Already loading historical data. Please wait.', 'info');
@@ -853,7 +844,7 @@ async function exportToGPX() {
     a.download = 'export.gpx';
     document.body.appendChild(a);
     a.click();
-    window.URL.revokeObjectURL(downloadUrl   );
+    window.URL.revokeObjectURL(downloadUrl);
     showFeedback('GPX export completed. Check your downloads.', 'success');
   } catch (error) {
     console.error('Error exporting GPX:', error);
@@ -992,7 +983,6 @@ async function filterAndDisplayData() {
   } else if (progressLayer) {
     progressLayer.remove();
   }
-
 }
 
 function setupEventListeners() {
@@ -1292,37 +1282,38 @@ function animateStatUpdate(elementId, newValue) {
 }
 
 document.addEventListener('DOMContentLoaded', function() {
-    checkHistoricalDataStatus(); // Start checking historical data status
-  
-    loadLiveRouteData()
-        .then(() => {
-          initializeDataPolling();
-  
-          fetch('/processing_status')
-              .then(response => response.json())
-              .then(data => {
-                if (data.isProcessing) {
-                  isProcessing = true;
-                  disableUI();
-                  showFeedback('A background task is in progress. Please wait.', 'info');
-                } else {
-                  initializeApp();
-                }
-              })
-              .catch(error => {
-                console.error('Error checking processing status:', error);
-                showFeedback('Error checking application status. Please refresh the page.', 'error');
-              });
-        })
-        .catch(error => {
-          console.error('Error loading initial live route data:', error);
-          showFeedback('Error loading initial live route data. Please refresh the page.', 'error');
-        });
-  
-    setupEventListeners();
-    updateProgress();
-  
-    // Ensure layers are visible initially based on checkbox states
+  checkHistoricalDataStatus(); // Start checking historical data status
+
+  loadLiveRouteData()
+      .then(() => {
+        initializeDataPolling();
+
+        fetch('/processing_status')
+            .then(response => response.json())
+            .then(data => {
+              if (data.isProcessing) {
+                isProcessing = true;
+                disableUI();
+                showFeedback('A background task is in progress. Please wait.', 'info');
+              } else {
+                initializeApp();
+              }
+            })
+            .catch(error => {
+              console.error('Error checking processing status:', error);
+              showFeedback('Error checking application status. Please refresh the page.', 'error');
+            });
+      })
+      .catch(error => {
+        console.error('Error loading initial live route data:', error);
+        showFeedback('Error loading initial live route data. Please refresh the page.', 'error');
+      });
+
+  setupEventListeners();
+  updateProgress();
+
+  // Ensure layers are visible initially based on checkbox states
+  if (map) {
     if (historicalDataCheckbox.checked && historicalDataLayer) {
       historicalDataLayer.addTo(map);
     }
@@ -1335,4 +1326,7 @@ document.addEventListener('DOMContentLoaded', function() {
     if (progressLayerCheckbox.checked && progressLayer) {
       progressLayer.addTo(map);
     }
-  });
+  } else {
+    console.warn('Map not initialized when trying to add layers');
+  }
+});
