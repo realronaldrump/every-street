@@ -280,7 +280,24 @@ async function fetchHistoricalData() {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
 
-  return response.json();
+  const data = await response.json();
+  
+  // Check if the data is in GeoDataFrame format and convert if necessary
+  if (data.features && Array.isArray(data.features)) {
+    return {
+      type: "FeatureCollection",
+      features: data.features.map(feature => ({
+        type: "Feature",
+        geometry: feature.geometry,
+        properties: {
+          timestamp: feature.timestamp,
+          // Add any other properties you need
+        }
+      }))
+    };
+  }
+
+  return data; // If it's already in GeoJSON format, return as is
 }
 
 // Update the visibility of the historical data layer based on checkbox state
@@ -446,7 +463,7 @@ async function loadWacoStreets() {
 
 // Add a popup to a route feature
 function addRoutePopup(feature, layer) {
-  const timestamp = feature.properties.timestamp;
+  const timestamp = feature.properties.timestamp || feature.timestamp;
   const date = new Date(timestamp * 1000).toLocaleDateString();
   const time = new Date(timestamp * 1000).toLocaleTimeString();
   const distance = calculateTotalDistance([feature]);
