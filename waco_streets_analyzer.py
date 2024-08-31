@@ -15,7 +15,7 @@ class WacoStreetsAnalyzer:
         self.streets_gdf = self.streets_gdf.to_crs(epsg=4326)
         
         self.traveled_streets = set()
-        self.snap_distance = 0.000001  # Approximately 11 meters
+        self.snap_distance = 0.00000001
         self.spatial_index = index.Index()
         for idx, geometry in enumerate(self.streets_gdf.geometry):
             self.spatial_index.insert(idx, geometry.bounds)
