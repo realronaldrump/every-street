@@ -345,9 +345,11 @@ class GeoJSONHandler:
     @staticmethod
     def create_geojson_features_from_trips(data):
         features = []
+        logger.info(f"Processing {len(data)} trips")
 
         for trip in data:
             if not isinstance(trip, dict):
+                logger.warning(f"Skipping non-dict trip data: {trip}")
                 continue
 
             coordinates = []
@@ -355,8 +357,11 @@ class GeoJSONHandler:
             for band in trip.get("bands", []):
                 for path in band.get("paths", []):
                     for point in path:
-                        lat, lon, _, _, timestamp, _ = point
-                        coordinates.append([lon, lat])
+                        if len(point) >= 6:
+                            lat, lon, _, _, timestamp, _ = point
+                            coordinates.append([lon, lat])
+                        else:
+                            logger.warning(f"Skipping invalid point: {point}")
 
             if len(coordinates) > 1 and timestamp is not None:
                 feature = {
@@ -365,6 +370,8 @@ class GeoJSONHandler:
                     "properties": {"timestamp": timestamp},
                 }
                 features.append(feature)
+            else:
+                logger.warning(f"Skipping trip with insufficient data: coordinates={len(coordinates)}, timestamp={timestamp}")
 
         logger.info(f"Created {len(features)} GeoJSON features from trip data")
         return features
