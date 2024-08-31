@@ -1,4 +1,5 @@
 import logging
+
 import geopandas as gpd
 from rtree import index
 from shapely.geometry import LineString
@@ -6,6 +7,7 @@ from shapely.geometry import LineString
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
 
 class WacoStreetsAnalyzer:
     def __init__(self, streets_geojson_path):
@@ -27,7 +29,8 @@ class WacoStreetsAnalyzer:
             if route['geometry']['type'] == 'LineString':
                 coords = route['geometry']['coordinates']
                 line = LineString(coords)
-                logging.info(f"Processing route {route_index}: {line.wkt[:100]}...")
+                logging.info(
+                    f"Processing route {route_index}: {line.wkt[:100]}...")
                 intersected_streets = 0
                 for idx, street in self.streets_gdf.iterrows():
                     try:
@@ -35,12 +38,15 @@ class WacoStreetsAnalyzer:
                             intersected_streets += 1
                             self.traveled_streets.add(street['street_id'])
                     except Exception as e:
-                        logging.error(f"Error processing street {idx}: {str(e)}")
+                        logging.error(
+                            f"Error processing street {idx}: {str(e)}")
 
                 if intersected_streets == 0:
-                    logging.warning(f"Route {route_index} did not intersect with any streets")
+                    logging.warning(
+                        f"Route {route_index} did not intersect with any streets")
                 else:
-                    logging.info(f"Route {route_index} intersected with {intersected_streets} streets")
+                    logging.info(
+                        f"Route {route_index} intersected with {intersected_streets} streets")
 
         logging.info(f"Total traveled streets: {len(self.traveled_streets)}")
         logging.info("Progress update completed.")
@@ -50,11 +56,13 @@ class WacoStreetsAnalyzer:
         total_streets = len(self.streets_gdf)
         traveled_streets = len(self.traveled_streets)
 
-        street_count_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
+        street_count_percentage = (
+            traveled_streets / total_streets) * 100 if total_streets > 0 else 0
 
         return {
             'street_count_percentage': street_count_percentage,
-            'length_percentage': street_count_percentage,  # Using street count as length percentage
+            # Using street count as length percentage
+            'length_percentage': street_count_percentage,
             'total_streets': total_streets,
             'traveled_streets': traveled_streets
         }
