@@ -23,7 +23,6 @@ from date_utils import date_range, format_date
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
 from waco_streets_analyzer import WacoStreetsAnalyzer
-from typing import Optional
 
 
 # Set up logging
