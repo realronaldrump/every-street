@@ -2,8 +2,8 @@ import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from geopy.distance import geodesic
-from bounciepy import AsyncRESTAPIClient
 from geopy.geocoders import Nominatim
+from bounciepy import AsyncRESTAPIClient
 from dotenv import load_dotenv
 import os
 import aiohttp
