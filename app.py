@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 from logging.handlers import RotatingFileHandler
 from typing import Optional
 
+from tqdm import tqdm
 from geopy.geocoders import Nominatim
 from hypercorn.asyncio import serve
 from hypercorn.config import Config as HyperConfig
