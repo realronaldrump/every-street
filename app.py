@@ -616,7 +616,6 @@ if __name__ == "__main__":
 def custom_exception_handler(exc_type, exc_value, exc_traceback):
     logger.error("Uncaught exception", exc_info=(
         exc_type, exc_value, exc_traceback))
-    import sys
     sys.exit(1)
 
 
