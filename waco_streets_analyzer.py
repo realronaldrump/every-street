@@ -10,6 +10,7 @@ logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 class WacoStreetsAnalyzer:
     def __init__(self, streets_geojson_path):
         logging.info("Initializing WacoStreetsAnalyzer...")
@@ -26,11 +27,11 @@ class WacoStreetsAnalyzer:
             self.streets_gdf['street_id'] = self.streets_gdf.index
             self.streets_gdf = self.streets_gdf.to_crs(epsg=4326)
             self.traveled_streets = set()
-            
+
             # Create spatial index using GeoPandas
             self.streets_gdf = self.streets_gdf.set_index('street_id')
             self.streets_gdf = self.streets_gdf.sort_index()
-            
+
             with open(cache_file, 'wb') as f:
                 pickle.dump({
                     'streets_gdf': self.streets_gdf,
@@ -49,26 +50,31 @@ class WacoStreetsAnalyzer:
                 geometry = route['geometry']
             else:
                 geometry = route
-            
+
             if geometry['type'] == 'LineString':
                 coords = geometry['coordinates']
                 line = LineString(coords)
-                logging.info(f"Processing route {route_index}: {line.wkt[:100]}...")
-                
+                logging.info(
+                    f"Processing route {route_index}: {line.wkt[:100]}...")
+
                 # Use spatial index for efficient querying
-                possible_matches_index = list(self.sindex.intersection(line.bounds))
+                possible_matches_index = list(
+                    self.sindex.intersection(line.bounds))
                 possible_matches = self.streets_gdf.iloc[possible_matches_index]
-                
+
                 # Vectorized operation
-                mask = possible_matches.intersects(line.buffer(self.snap_distance))
+                mask = possible_matches.intersects(
+                    line.buffer(self.snap_distance))
                 intersected_streets = possible_matches[mask]
-                
+
                 self.traveled_streets.update(intersected_streets.index)
 
                 if len(intersected_streets) == 0:
-                    logging.warning(f"Route {route_index} did not intersect with any streets")
+                    logging.warning(
+                        f"Route {route_index} did not intersect with any streets")
                 else:
-                    logging.info(f"Route {route_index} intersected with {len(intersected_streets)} streets")
+                    logging.info(
+                        f"Route {route_index} intersected with {len(intersected_streets)} streets")
 
         logging.info(f"Total traveled streets: {len(self.traveled_streets)}")
         logging.info("Progress update completed.")
@@ -78,11 +84,13 @@ class WacoStreetsAnalyzer:
         total_streets = len(self.streets_gdf)
         traveled_streets = len(self.traveled_streets)
 
-        street_count_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
+        street_count_percentage = (
+            traveled_streets / total_streets) * 100 if total_streets > 0 else 0
 
         return {
             'street_count_percentage': street_count_percentage,
-            'length_percentage': street_count_percentage,  # Using street count as length percentage
+            # Using street count as length percentage
+            'length_percentage': street_count_percentage,
             'total_streets': total_streets,
             'traveled_streets': traveled_streets
         }
@@ -95,13 +103,16 @@ class WacoStreetsAnalyzer:
         logger.info("Generating progress GeoJSON...")
         waco_limits = None
         if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+            waco_limits = gpd.read_file(
+                f"static/{waco_boundary}.geojson").geometry.unary_union
 
         # Vectorized operation
-        self.streets_gdf['traveled'] = self.streets_gdf.index.isin(self.traveled_streets)
+        self.streets_gdf['traveled'] = self.streets_gdf.index.isin(
+            self.traveled_streets)
 
         if waco_limits is not None:
-            filtered_streets = self.streets_gdf[self.streets_gdf.intersects(waco_limits)]
+            filtered_streets = self.streets_gdf[self.streets_gdf.intersects(
+                waco_limits)]
         else:
             filtered_streets = self.streets_gdf
 
@@ -121,11 +132,14 @@ class WacoStreetsAnalyzer:
         logger.info("Generating untraveled streets...")
         waco_limits = None
         if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+            waco_limits = gpd.read_file(
+                f"static/{waco_boundary}.geojson").geometry.unary_union
 
-        untraveled_streets = self.streets_gdf[~self.streets_gdf.index.isin(self.traveled_streets)]
+        untraveled_streets = self.streets_gdf[~self.streets_gdf.index.isin(
+            self.traveled_streets)]
         if waco_limits is not None:
-            untraveled_streets = untraveled_streets[untraveled_streets.intersects(waco_limits)]
+            untraveled_streets = untraveled_streets[untraveled_streets.intersects(
+                waco_limits)]
 
         return untraveled_streets
 
@@ -133,7 +147,8 @@ class WacoStreetsAnalyzer:
         logger.info("Analyzing street coverage...")
         waco_limits = None
         if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+            waco_limits = gpd.read_file(
+                f"static/{waco_boundary}.geojson").geometry.unary_union
 
         if waco_limits:
             total_streets = self.streets_gdf.intersects(waco_limits).sum()
@@ -141,7 +156,8 @@ class WacoStreetsAnalyzer:
             total_streets = len(self.streets_gdf)
 
         traveled_streets = len(self.traveled_streets)
-        coverage_percentage = (traveled_streets / total_streets) * 100 if total_streets > 0 else 0
+        coverage_percentage = (
+            traveled_streets / total_streets) * 100 if total_streets > 0 else 0
 
         return {
             "total_streets": total_streets,
@@ -153,12 +169,15 @@ class WacoStreetsAnalyzer:
         logger.info("Retrieving street network...")
         waco_limits = None
         if waco_boundary != "none":
-            waco_limits = gpd.read_file(f"static/{waco_boundary}.geojson").geometry.unary_union
+            waco_limits = gpd.read_file(
+                f"static/{waco_boundary}.geojson").geometry.unary_union
 
         street_network = self.streets_gdf.copy()
         if waco_limits is not None:
-            street_network = street_network[street_network.intersects(waco_limits)]
+            street_network = street_network[street_network.intersects(
+                waco_limits)]
 
-        street_network['traveled'] = street_network.index.isin(self.traveled_streets)
+        street_network['traveled'] = street_network.index.isin(
+            self.traveled_streets)
 
         return street_network
