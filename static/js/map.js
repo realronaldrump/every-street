@@ -876,7 +876,7 @@ function updateMapWithHistoricalData(data) {
     },
     onEachFeature: addRoutePopup,
     filter: function(feature) {
-      return feature.geometry && feature.geometry.coordinates && feature.geometry.coordinates.length > 0;
+      return feature.geometry?.coordinates && feature.geometry.coordinates.length > 0;
     },
     pane: 'historicalDataPane'
   });
