@@ -109,8 +109,7 @@ config = Config()
 
 
 def create_app():
-    app = Quart(__name__)
-    app = cors(app)
+    app = cors(Quart(__name__))  # Chain cors() directly
     app.config.from_mapping(
         {k: v for k, v in config.dict().items() if k not in ['Config']})
 
