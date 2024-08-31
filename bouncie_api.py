@@ -1,12 +1,13 @@
 import asyncio
 import logging
-from datetime import datetime, timezone, timedelta
-from geopy.distance import geodesic
-from geopy.geocoders import Nominatim
+import os
+from datetime import datetime, timedelta, timezone
+
+import aiohttp
 from bounciepy import AsyncRESTAPIClient
 from dotenv import load_dotenv
-import os
-import aiohttp
+from geopy.distance import geodesic
+from geopy.geocoders import Nominatim
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 load_dotenv()
@@ -22,6 +23,7 @@ ENABLE_GEOCODING = True
 
 logger = logging.getLogger(__name__)
 
+
 class BouncieAPI:
     def __init__(self):
         self.client = AsyncRESTAPIClient(
@@ -31,7 +33,8 @@ class BouncieAPI:
             auth_code=AUTH_CODE,
         )
         self.geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
-        self.live_trip_data = {"last_updated": datetime.now(timezone.utc), "data": []}
+        self.live_trip_data = {
+            "last_updated": datetime.now(timezone.utc), "data": []}
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def get_latest_bouncie_data(self):
@@ -39,7 +42,8 @@ class BouncieAPI:
             await self.client.get_access_token()
             vehicle_data = await self.client.get_vehicle_by_imei(imei=DEVICE_IMEI)
             if not vehicle_data or "stats" not in vehicle_data:
-                logger.error("No vehicle data or stats found in Bouncie response")
+                logger.error(
+                    "No vehicle data or stats found in Bouncie response")
                 return None
 
             stats = vehicle_data["stats"]
@@ -81,7 +85,8 @@ class BouncieAPI:
     async def reverse_geocode(self, lat, lon):
         try:
             location = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: self.geolocator.reverse((lat, lon), addressdetails=True)
+                None, lambda: self.geolocator.reverse(
+                    (lat, lon), addressdetails=True)
             )
             if location:
                 return self._format_address(location.raw["address"])
@@ -100,11 +105,13 @@ class BouncieAPI:
             if response.status == 200:
                 logger.info(f"Successfully fetched data for {date}")
                 return await response.json()
-            logger.error(f"Error fetching data for {date}. Status: {response.status}")
+            logger.error(
+                f"Error fetching data for {date}. Status: {response.status}")
             response.raise_for_status()
 
     async def get_trip_metrics(self):
-        time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
+        time_since_update = datetime.now(
+            timezone.utc) - self.live_trip_data["last_updated"]
         if time_since_update.total_seconds() > 45:
             self.live_trip_data["data"] = []
 
@@ -124,7 +131,8 @@ class BouncieAPI:
     @staticmethod
     def _parse_timestamp(timestamp_iso):
         try:
-            timestamp_dt = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
+            timestamp_dt = datetime.fromisoformat(
+                timestamp_iso.replace("Z", "+00:00"))
             return int(timestamp_dt.timestamp())
         except Exception as e:
             logger.error(f"Error converting timestamp: {e}")
@@ -201,7 +209,8 @@ class BouncieAPI:
                 current_date = start_date
                 while current_date <= end_date:
                     date_str = current_date.strftime("%Y-%m-%d")
-                    tasks.append(self.fetch_trip_data(session, VEHICLE_ID, date_str, headers))
+                    tasks.append(self.fetch_trip_data(
+                        session, VEHICLE_ID, date_str, headers))
                     current_date += timedelta(days=1)
 
                 results = await asyncio.gather(*tasks)
