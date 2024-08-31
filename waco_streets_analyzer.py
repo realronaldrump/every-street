@@ -45,8 +45,13 @@ class WacoStreetsAnalyzer:
     async def update_progress(self, routes):
         logging.info(f"Updating progress with {len(routes)} new routes...")
         for route_index, route in enumerate(routes):
-            if route['geometry']['type'] == 'LineString':
-                coords = route['geometry']['coordinates']
+            if isinstance(route, dict) and 'geometry' in route:
+                geometry = route['geometry']
+            else:
+                geometry = route
+            
+            if geometry['type'] == 'LineString':
+                coords = geometry['coordinates']
                 line = LineString(coords)
                 logging.info(f"Processing route {route_index}: {line.wkt[:100]}...")
                 
