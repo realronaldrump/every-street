@@ -451,38 +451,41 @@ def create_app():
 
     # Async Tasks
     async def poll_bouncie_api():
-        while True:
-            try:
-                bouncie_data = await app.bouncie_api.get_latest_bouncie_data()
-                if bouncie_data:
-                    async with app.live_route_lock:
-                        app.live_route_data = load_live_route_data()
-
-                        if "features" not in app.live_route_data:
-                            app.live_route_data["features"] = [{
-                                "type": "Feature",
-                                "geometry": {
-                                    "type": "LineString",
-                                    "coordinates": []
-                                },
-                                "properties": {}
-                            }]
-                        live_route_feature = app.live_route_data["features"][0]
-
-                        new_coord = [bouncie_data["longitude"], bouncie_data["latitude"]]
-
-                        if not live_route_feature["geometry"]["coordinates"] or new_coord != live_route_feature["geometry"]["coordinates"][-1]:
-                            live_route_feature["geometry"]["coordinates"].append(new_coord)
-                            save_live_route_data(app.live_route_data)
-                            app.latest_bouncie_data = bouncie_data
-                        else:
-                            logger.debug("Duplicate point detected, not adding to live route")
-
-                await asyncio.sleep(1)
-
-            except Exception as e:
-                logger.error(f"Error fetching live data: {e}", exc_info=True)
-                await asyncio.sleep(5)
+                       while True:
+                           try:
+                               bouncie_data = await app.bouncie_api.get_latest_bouncie_data()
+                               if bouncie_data:
+                                   async with app.live_route_lock:
+                                       app.live_route_data = load_live_route_data()
+                   
+                                       if "features" not in app.live_route_data:
+                                           app.live_route_data["features"] = [{
+                                               "type": "Feature",
+                                               "geometry": {
+                                                   "type": "LineString",
+                                                   "coordinates": []
+                                               },
+                                               "properties": {}
+                                           }]
+                                       live_route_feature = app.live_route_data["features"][0]
+                   
+                                       new_coord = [bouncie_data["longitude"], bouncie_data["latitude"]]
+                   
+                                       if not live_route_feature["geometry"]["coordinates"] or new_coord != live_route_feature["geometry"]["coordinates"][-1]:
+                                           live_route_feature["geometry"]["coordinates"].append(new_coord)
+                                           save_live_route_data(app.live_route_data)
+                                           app.latest_bouncie_data = bouncie_data
+                                       else:
+                                           logger.debug("Duplicate point detected, not adding to live route")
+                   
+                               await asyncio.sleep(1)
+                   
+                           except Exception as e:
+                               logger.error(f"Error fetching live data: {e}", exc_info=True)
+                               await asyncio.sleep(5)
+                           
+                           # Add a small delay to prevent tight loop if there are persistent errors
+                           await asyncio.sleep(1)
 
     async def load_historical_data_background():
         async with app.historical_data_lock:
