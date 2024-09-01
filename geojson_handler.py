@@ -9,8 +9,7 @@ import aiofiles
 import geopandas as gpd
 import pandas as pd
 import numpy as np
-from shapely.geometry import LineString, MultiLineString, MultiPolygon, Polygon, box, shape
-from shapely.ops import unary_union
+from shapely.geometry import box, shape
 from tqdm import tqdm
 
 from bouncie_api import BouncieAPI
