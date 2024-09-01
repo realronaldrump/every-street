@@ -50,7 +50,7 @@ class WacoStreetsAnalyzer:
                 'traveled_streets': self.traveled_streets
             }, f)
 
-    async def update_progress(self, routes):
+    def update_progress(self, routes):
         logging.info(f"Updating progress with {len(routes)} new routes...")
         for _, route in routes.iterrows():
             if isinstance(route.geometry, LineString):
@@ -142,3 +142,7 @@ class WacoStreetsAnalyzer:
         street_network['traveled'] = street_network.index.isin(self.traveled_streets)
 
         return street_network
+    
+    def get_all_streets(self):
+        logger.info(f"Retrieving all streets. Total streets: {len(self.streets_gdf)}")
+        return self.streets_gdf
