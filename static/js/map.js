@@ -237,7 +237,7 @@ async function loadHistoricalData() {
   while (historicalDataLoadAttempts < MAX_HISTORICAL_DATA_LOAD_ATTEMPTS) {
     try {
       const data = await fetchHistoricalData();
-      if (data && data.features && data.features.length > 0) {
+      if (data?.features && data.features.length > 0) {
         historicalDataLayer = L.geoJSON(data, {
           style: {
             color: '#0000FF',
