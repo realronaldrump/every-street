@@ -218,21 +218,21 @@ class GeoJSONHandler:
 
             if month_start <= end_datetime and month_end >= start_datetime:
                 month_features = gpd.GeoDataFrame.from_features(features)
-                
+
                 # Convert timestamp to datetime
                 month_features['timestamp'] = pd.to_datetime(month_features['timestamp'], unit='s', utc=True)
-                
+
                 mask = (month_features['timestamp'] >= start_datetime) & (month_features['timestamp'] <= end_datetime)
-                
+
                 if bounds:
                     mask &= month_features.intersects(bounding_box)
-                
+
                 if filter_waco and waco_limits:
                     mask &= month_features.intersects(waco_limits)
                     clipped_features = month_features[mask].intersection(waco_limits)
                 else:
                     clipped_features = month_features[mask]
-                
+
                 filtered_features.extend(clipped_features.__geo_interface__['features'])
 
         logger.info(f"Filtered {len(filtered_features)} features")
@@ -243,15 +243,15 @@ class GeoJSONHandler:
             logger.info("Updating progress for all historical data...")
             total_features = len(self.historical_geojson_features)
             logger.info(f"Total features to process: {total_features}")
-            
+
             features_gdf = gpd.GeoDataFrame.from_features(self.historical_geojson_features)
-            
+
             # Convert GeoDataFrame to list of dictionaries format expected by WacoStreetsAnalyzer
             features_list = features_gdf.apply(lambda row: {
                 'geometry': row.geometry.__geo_interface__,
                 'properties': {'timestamp': row.timestamp}
             }, axis=1).tolist()
-            
+
             await self.waco_analyzer.update_progress(features_list)
 
             final_coverage = self.waco_analyzer.calculate_progress()

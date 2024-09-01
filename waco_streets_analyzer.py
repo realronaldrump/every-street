@@ -25,11 +25,11 @@ class WacoStreetsAnalyzer:
             self.streets_gdf['street_id'] = self.streets_gdf.index
             self.streets_gdf = self.streets_gdf.to_crs(epsg=4326)
             self.traveled_streets = set()
-            
+
             # Create spatial index using GeoPandas
             self.streets_gdf = self.streets_gdf.set_index('street_id')
             self.streets_gdf = self.streets_gdf.sort_index()
-            
+
             with open(cache_file, 'wb') as f:
                 pickle.dump({
                     'streets_gdf': self.streets_gdf,
@@ -48,20 +48,20 @@ class WacoStreetsAnalyzer:
                 geometry = route['geometry']
             else:
                 geometry = route
-            
+
             if geometry['type'] == 'LineString':
                 coords = geometry['coordinates']
                 line = LineString(coords)
                 logging.info(f"Processing route {route_index}: {line.wkt[:100]}...")
-                
+
                 # Use spatial index for efficient querying
                 possible_matches_index = list(self.sindex.intersection(line.bounds))
                 possible_matches = self.streets_gdf.iloc[possible_matches_index]
-                
+
                 # Vectorized operation
                 mask = possible_matches.intersects(line.buffer(self.snap_distance))
                 intersected_streets = possible_matches[mask]
-                
+
                 self.traveled_streets.update(intersected_streets.index)
 
                 if len(intersected_streets) == 0:
