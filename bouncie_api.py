@@ -1,4 +1,4 @@
-import asyncio
+mport asyncio
 import logging
 from datetime import datetime, timezone, timedelta
 from geopy.distance import geodesic
@@ -7,7 +7,7 @@ from bounciepy import AsyncRESTAPIClient
 from dotenv import load_dotenv
 import os
 import aiohttp
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 load_dotenv()
 
@@ -18,9 +18,13 @@ AUTH_CODE = os.getenv("AUTH_CODE")
 VEHICLE_ID = os.getenv("VEHICLE_ID")
 DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 
-ENABLE_GEOCODING = True
+ENABLE_GEOCODING = os.getenv("ENABLE_GEOCODING", "True").lower() == "true"
 
 logger = logging.getLogger(__name__)
+
+class BouncieAPIError(Exception):
+    """Custom exception for BouncieAPI errors."""
+    pass
 
 class BouncieAPI:
     def __init__(self):
@@ -33,33 +37,40 @@ class BouncieAPI:
         self.geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
         self.live_trip_data = {"last_updated": datetime.now(timezone.utc), "data": []}
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10),
+        retry=retry_if_exception_type(BouncieAPIError)
+    )
     async def get_latest_bouncie_data(self):
         try:
             await self.client.get_access_token()
             vehicle_data = await self.client.get_vehicle_by_imei(imei=DEVICE_IMEI)
-            if not vehicle_data or "stats" not in vehicle_data:
-                logger.error("No vehicle data or stats found in Bouncie response")
-                return None
+            
+            if not vehicle_data:
+                logger.warning("No vehicle data found in Bouncie response")
+                return self._create_default_response("No vehicle data available")
 
-            stats = vehicle_data["stats"]
+            stats = vehicle_data.get("stats", {})
+            if not stats:
+                logger.warning("No stats found in vehicle data")
+                return self._create_default_response("No stats available")
+
             location = stats.get("location")
-
             if not location:
-                logger.error("No location data found in Bouncie stats")
-                return None
+                logger.warning("No location data found in Bouncie stats")
+                return self._create_default_response("No location data available")
 
-            location_address = (
-                await self.reverse_geocode(location["lat"], location["lon"])
-                if ENABLE_GEOCODING
-                else "N/A"
-            )
-
-            timestamp_unix = self._parse_timestamp(stats["lastUpdated"])
+            timestamp_unix = self._parse_timestamp(stats.get("lastUpdated"))
             if timestamp_unix is None:
-                return None
+                return self._create_default_response("Invalid timestamp")
 
-            battery_state = self._get_battery_state(stats["battery"]["status"])
+            battery_state = self._get_battery_state(stats.get("battery", {}).get("status"))
+            speed = stats.get("speed", 0)
+
+            location_address = "N/A"
+            if ENABLE_GEOCODING:
+                location_address = await self.reverse_geocode(location["lat"], location["lon"])
 
             logger.info(
                 f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}"
@@ -69,13 +80,26 @@ class BouncieAPI:
                 "longitude": location["lon"],
                 "timestamp": timestamp_unix,
                 "battery_state": battery_state,
-                "speed": stats["speed"],
+                "speed": speed,
                 "device_id": DEVICE_IMEI,
                 "address": location_address,
+                "status": "active"
             }
         except Exception as e:
-            logger.error(f"An error occurred while fetching live data: {e}")
-            raise
+            logger.error(f"An error occurred while fetching live data: {e}", exc_info=True)
+            raise BouncieAPIError(f"Failed to fetch Bouncie data: {str(e)}")
+
+    def _create_default_response(self, status_message):
+        return {
+            "latitude": None,
+            "longitude": None,
+            "timestamp": int(datetime.now(timezone.utc).timestamp()),
+            "battery_state": "unknown",
+            "speed": 0,
+            "device_id": DEVICE_IMEI,
+            "address": "N/A",
+            "status": status_message
+        }
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def reverse_geocode(self, lat, lon):
@@ -85,10 +109,10 @@ class BouncieAPI:
             )
             if location:
                 return self._format_address(location.raw["address"])
-            return "N/A"
+            return "Address not found"
         except Exception as e:
-            logger.error(f"Reverse geocoding failed with error: {e}")
-            raise
+            logger.error(f"Reverse geocoding failed with error: {e}", exc_info=True)
+            return "Geocoding error"
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
     async def fetch_trip_data(self, session, vehicle_id, date, headers):
@@ -127,19 +151,24 @@ class BouncieAPI:
 
     @staticmethod
     def _parse_timestamp(timestamp_iso):
+        if not timestamp_iso:
+            logger.warning("Empty timestamp received")
+            return None
         try:
             timestamp_dt = datetime.fromisoformat(timestamp_iso.replace("Z", "+00:00"))
             return int(timestamp_dt.timestamp())
         except Exception as e:
-            logger.error(f"Error converting timestamp: {e}")
+            logger.error(f"Error converting timestamp: {e}", exc_info=True)
             return None
 
     @staticmethod
     def _get_battery_state(bouncie_status):
+        if bouncie_status is None:
+            return "unknown"
         return (
             "full"
             if bouncie_status == "normal"
-            else "unplugged"
+            else "low"
             if bouncie_status == "low"
             else "unknown"
         )
@@ -216,4 +245,5 @@ class BouncieAPI:
                 return valid_results
         except Exception as e:
             logger.error(f"Error fetching historical data: {e}", exc_info=True)
-            raise
+            raise BouncieAPIError(f"Failed to fetch historical data: {str(e)}")
+            
