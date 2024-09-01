@@ -210,7 +210,7 @@ def create_app():
             except Exception as e:
                 logger.error(f"Error updating progress: {str(e)}", exc_info=True)
                 return jsonify({"error": f"Error updating progress: {str(e)}"}), 500
-            
+
     @app.route('/untraveled_streets')
     async def get_untraveled_streets():
         waco_boundary = request.args.get("wacoBoundary", "city_limits")
