@@ -3,7 +3,6 @@ import os
 import pickle
 
 import geopandas as gpd
-import numpy as np
 from shapely.geometry import LineString
 
 logging.basicConfig(level=logging.INFO,
