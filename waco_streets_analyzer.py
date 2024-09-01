@@ -52,7 +52,15 @@ class WacoStreetsAnalyzer:
 
     def update_progress(self, routes):
         logging.info(f"Updating progress with {len(routes)} new routes...")
-        for _, route in routes.iterrows():
+        if not routes:
+            logging.warning("No routes provided for update_progress")
+            return
+
+        # Convert list of dictionaries to GeoDataFrame
+        gdf = gpd.GeoDataFrame.from_features(routes)
+        gdf.set_crs(epsg=4326, inplace=True)
+
+        for _, route in gdf.iterrows():
             if isinstance(route.geometry, LineString):
                 line = route.geometry
                 logging.info(f"Processing route: {line.wkt[:100]}...")

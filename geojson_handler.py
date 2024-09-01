@@ -246,15 +246,8 @@ class GeoJSONHandler:
             total_features = len(self.historical_geojson_features)
             logger.info(f"Total features to process: {total_features}")
 
-            features_gdf = gpd.GeoDataFrame.from_features(self.historical_geojson_features)
-
-            # Convert GeoDataFrame to list of dictionaries format expected by WacoStreetsAnalyzer
-            features_list = features_gdf.apply(lambda row: {
-                'geometry': row.geometry.__geo_interface__,
-                'properties': {'timestamp': row.timestamp}
-            }, axis=1).tolist()
-
-            await self.waco_analyzer.update_progress(features_list)
+            # Pass the list of features directly to update_progress
+            await self.waco_analyzer.update_progress(self.historical_geojson_features)
 
             final_coverage = self.waco_analyzer.calculate_progress()
             logger.info(f"Progress updated successfully. Coverage: {final_coverage['coverage_percentage']:.2f}%")
@@ -342,6 +335,6 @@ class GeoJSONHandler:
             logging.error(f"Error updating Waco streets progress: {str(e)}", exc_info=True)
             return None
 
-    def get_all_streets(self):
-        logger.info(f"Retrieving all streets. Total streets: {len(self.streets_gdf)}")
-        return self.streets_gdf
+    def get_all_routes(self):
+        logger.info(f"Retrieving all routes. Total features: {len(self.historical_geojson_features)}")
+        return self.historical_geojson_features
