@@ -127,18 +127,21 @@ class BouncieAPI:
                     await asyncio.sleep(1)
         return "N/A"
 
-    async def fetch_trip_data(self, session, vehicle_id, date, headers):
-        parsed_date = parse_date(date)
-        start_time = format_date(get_start_of_day(parsed_date))
-        end_time = format_date(get_end_of_day(parsed_date))
-        summary_url = f"https://www.bouncie.app/api/vehicles/{vehicle_id}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
+    async def fetch_trip_data(self, start_date, end_date):
+        await self.client.get_access_token()
+        headers = {"Authorization": f"Bearer {self.client.access_token}"}
+        
+        start_time = format_date(get_start_of_day(start_date))
+        end_time = format_date(get_end_of_day(end_date))
+        
+        summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
-        async with session.get(summary_url, headers=headers) as response:
+        async with self.client.session.get(summary_url, headers=headers) as response:
             if response.status == 200:
-                logging.info(f"Successfully fetched data for {date}")
+                logging.info(f"Successfully fetched data from {start_date} to {end_date}")
                 return await response.json()
             else:
-                logging.error(f"Error fetching data for {date}. Status: {response.status}")
+                logging.error(f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
                 return None
 
     async def get_trip_metrics(self):
