@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-
+import numpy as np
 from geopy.distance import geodesic
 from bounciepy import AsyncRESTAPIClient
 from geopy.geocoders import Nominatim
@@ -19,6 +19,7 @@ VEHICLE_ID = os.getenv("VEHICLE_ID")
 DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 
 ENABLE_GEOCODING = True
+
 
 class BouncieAPI:
     def __init__(self):
@@ -202,3 +203,43 @@ class BouncieAPI:
         minutes = (seconds % 3600) // 60
         seconds = seconds % 60
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+    @staticmethod
+    def create_geojson_features_from_trips(data):
+        features = []
+        logging.info(f"Processing {len(data)} trips")
+
+        if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
+            data = data[0].get('bands', [])
+
+        for trip in data:
+            if not isinstance(trip, dict):
+                logging.warning(f"Skipping non-dict trip data: {trip}")
+                continue
+
+            coordinates = []
+            timestamp = None
+            for band in trip.get("bands", []):
+                for path in band.get("paths", []):
+                    # Debugging: Log the path data
+                    logging.debug(f"Path data: {path}")
+
+                    path_array = np.array(path)
+                    if path_array.shape[1] >= 6:
+                        coordinates.extend(path_array[:, [1, 0]])  # lon, lat
+                        timestamp = path_array[-1, 4]  # last timestamp
+                    else:
+                        logging.warning(f"Skipping invalid path: {path}")
+
+            if len(coordinates) > 1 and timestamp is not None:
+                feature = {
+                    "type": "Feature",
+                    "geometry": {"type": "LineString", "coordinates": coordinates.tolist()},
+                    "properties": {"timestamp": int(timestamp)},
+                }
+                features.append(feature)
+            else:
+                logging.warning(f"Skipping trip with insufficient data: coordinates={len(coordinates)}, timestamp={timestamp}")
+
+        logging.info(f"Created {len(features)} GeoJSON features from trip data")
+        return features

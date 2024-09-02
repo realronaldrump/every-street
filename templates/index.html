@@ -4,23 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Every Street - Tracking Davis's Waco Adventure</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/leaflet.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
     <link rel="stylesheet" href="/static/css/styles.css">
     <link rel="icon" href="favicon.ico" type="image/x-icon">
 </head>
 <body>
-    <div id="app" class="animate__animated animate__fadeIn">
+    <div id="app">
         <header>
-            <h1 id="every-street" class="animate__animated animate__bounceInDown">Every Street</h1>
-            <h2 id="tracking-davis" class="animate__animated animate__bounceInUp">Tracking Davis as he Conquers Every Street in Waco!</h2>
+            <h1>Every Street</h1>
+            <h2>Tracking Davis as he Conquers Every Street in Waco!</h2>
         </header>
 
         <div id="feedback-container"></div>
 
         <main role="main">
-            <section id="filters" class="section filters animate__animated animate__slideInLeft">
+            <section id="filters" class="section">
                 <div id="time-filters" class="filter-group">
                     <button data-filter="today">Today</button>
                     <button data-filter="yesterday">Yesterday</button>
@@ -34,7 +33,7 @@
                     <div class="search-container">
                         <input type="text" id="searchInput" placeholder="Search location...">
                         <button id="searchBtn">Search</button>
-                        <div id="searchSuggestions" role="listbox" aria-label="Search Suggestions"></div>
+                        <div id="searchSuggestions" role="listbox" aria-label="Search Suggestions"></div> 
                     </div>
                 </div>
 
@@ -73,7 +72,7 @@
 
             <section id="map" class="section" aria-label="Map of Davis's Routes"></section>
 
-            <section id="playback-controls" class="section playback-controls animate__animated animate__slideInRight">
+            <section id="playback-controls" class="section">
                 <button id="playPauseBtn">Play</button>
                 <button id="stopBtn">Stop</button>
                 <button id="clearRouteBtn">Clear Route</button>
@@ -85,19 +84,19 @@
                 </div>
             </section>
 
-            <section id="stats" class="section stats animate__animated animate__slideInUp">
+            <section id="stats" class="section">
                 <div class="stat-group">
                     <h3>Live Data</h3>
                     <div class="stat-cards">
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Last Updated</h4>
                             <p id="lastUpdated">N/A</p>
                         </div>
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Speed</h4>
                             <p id="speed">N/A</p>
                         </div>
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Location</h4>
                             <p id="location">N/A</p>
                         </div>
@@ -107,23 +106,23 @@
                 <div class="stat-group">
                     <h3>Trip Summary</h3>
                     <div class="stat-cards">
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Total Distance</h4>
                             <p id="totalDistance">N/A</p>
                         </div>
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Total Time</h4>
                             <p id="totalTime">N/A</p>
                         </div>
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Max Speed</h4>
                             <p id="maxSpeed">N/A</p>
                         </div>
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Start Time</h4>
                             <p id="startTime">N/A</p>
                         </div>
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>End Time</h4>
                             <p id="endTime">N/A</p>
                         </div>
@@ -133,7 +132,7 @@
                 <div class="stat-group">
                     <h3>Historical Data</h3>
                     <div class="stat-cards">
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Total Historical Distance</h4>
                             <p id="totalHistoricalDistance">N/A</p>
                         </div>
@@ -143,14 +142,14 @@
                 <div class="stat-group">
                     <h3>Waco Streets Progress</h3>
                     <div class="stat-cards">
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <h4>Progress</h4>
                             <div id="progress-bar-container">
                                 <div id="progress-bar"></div>
                             </div>
                             <div id="progress-text"></div>
                         </div>
-                        <div class="stat-card animate__animated">
+                        <div class="stat-card">
                             <select id="streets-select">
                                 <option value="all">All Streets</option>
                                 <option value="traveled">Traveled Streets</option>
@@ -162,7 +161,7 @@
                 </div>
             </section>
 
-            <section id="map-controls" class="section map-control-group">
+            <section id="map-controls" class="section">
                 <h3>Map Layers</h3>
                 <div class="map-control-item">
                     <input type="checkbox" id="historicalDataCheckbox" checked>
@@ -199,7 +198,7 @@
     </div>
 
     <div id="loadingOverlay" class="loading-overlay">
-        <div class="loading-spinner animate__animated animate__pulse animate__infinite"></div>
+        <div class="loading-spinner"></div> 
         <p class="loading-text">Loading...</p>
     </div>
 
