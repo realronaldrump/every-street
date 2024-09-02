@@ -5,24 +5,27 @@ import numpy as np
 from geopy.distance import geodesic
 from bounciepy import AsyncRESTAPIClient
 from geopy.geocoders import Nominatim
-from dotenv import load_dotenv
 import os
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day
 
-load_dotenv()
+# Use os.getenv directly for environment variables
+CLIENT_ID = "python-test"
+CLIENT_SECRET = "v023rK8ZLVSh7pp0dhkrRu9rqYonaCbRDLSQ1Hh9JG5VR6REVr"
+REDIRECT_URI = "http://localhost:8080/callback"
+AUTH_CODE = "UfHLWwJJqrJkLyA2uy2a7fJvAsTUOOmkAq2H5Tfkuwc1ZMxsO2"
+DEVICE_IMEI = "352602113969379"
 
-CLIENT_ID = os.getenv("CLIENT_ID")
-CLIENT_SECRET = os.getenv("CLIENT_SECRET")
-REDIRECT_URI = os.getenv("REDIRECT_URI")
-AUTH_CODE = os.getenv("AUTH_CODE")
-VEHICLE_ID = os.getenv("VEHICLE_ID")
-DEVICE_IMEI = os.getenv("DEVICE_IMEI")
+# Your Device ID 
+VEHICLE_ID = "5f31babdad03810038e10c32"
 
-ENABLE_GEOCODING = True
-
+ENABLE_GEOCODING = os.getenv("ENABLE_GEOCODING", "False").lower() == "true" 
 
 class BouncieAPI:
     def __init__(self):
+        # Verify that required environment variables are set
+        if not all([CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, AUTH_CODE, VEHICLE_ID, DEVICE_IMEI]):
+            raise ValueError("Missing required environment variables for BouncieAPI")
+
         self.client = AsyncRESTAPIClient(
             client_id=CLIENT_ID,
             client_secret=CLIENT_SECRET,
@@ -34,6 +37,7 @@ class BouncieAPI:
 
     async def get_latest_bouncie_data(self):
         try:
+            # Refresh the access token before making the API call
             await self.client.get_access_token()
             vehicle_data = await self.client.get_vehicle_by_imei(imei=DEVICE_IMEI)
             if not vehicle_data or "stats" not in vehicle_data:
@@ -139,6 +143,10 @@ class BouncieAPI:
             summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
             async with self.client._session.get(summary_url, headers=headers) as response:
+                logging.debug(f"API Request URL: {summary_url}") 
+                logging.debug(f"Request Headers: {headers}") 
+                logging.debug(f"Response Status: {response.status}")
+                logging.debug(f"Response Body: {await response.text()}")
                 if response.status == 200:
                     logging.info(f"Successfully fetched data from {start_date} to {end_date}")
                     return await response.json()
@@ -221,12 +229,8 @@ class BouncieAPI:
             timestamp = None
             for band in trip.get("bands", []):
                 for path in band.get("paths", []):
-                    # Debugging: Log the path data
-                    logging.debug(f"Path data: {path}")
-
                     path_array = np.array(path)
-                    # Check if the path has at least latitude, longitude and timestamp
-                    if path_array.shape[1] >= 5: 
+                    if path_array.shape[1] >= 5: # Check for lat, lon, timestamp at least
                         coordinates.extend(path_array[:, [1, 0]])  # lon, lat
                         timestamp = path_array[-1, 4]  # last timestamp
                     else:
