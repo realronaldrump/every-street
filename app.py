@@ -477,14 +477,18 @@ def create_app():
                         app.live_route_data = load_live_route_data()
 
                         if "features" not in app.live_route_data:
-                            app.live_route_data["features"] = [{
+                            app.live_route_data["features"] = []
+
+                        if not app.live_route_data["features"]:
+                            app.live_route_data["features"].append({
                                 "type": "Feature",
                                 "geometry": {
                                     "type": "LineString",
                                     "coordinates": []
                                 },
                                 "properties": {}
-                            }]
+                            })
+
                         live_route_feature = app.live_route_data["features"][0]
 
                         new_coord = [bouncie_data["longitude"], bouncie_data["latitude"]]

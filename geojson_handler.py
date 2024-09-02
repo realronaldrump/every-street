@@ -136,7 +136,7 @@ class GeoJSONHandler:
                     latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
 
                 today = datetime.now(tz=timezone.utc)
-                all_trips = await self.bouncie_api.fetch_historical_data(latest_date, today)
+                all_trips = await self.bouncie_api.fetch_trip_data(latest_date, today)
 
                 logger.info(f"Fetched {len(all_trips)} trips")
                 new_features = await self._process_trips_in_batches(all_trips)
@@ -265,10 +265,14 @@ class GeoJSONHandler:
         features = []
         logger.info(f"Processing {len(data)} trips")
 
+        if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
+            data = data[0].get('bands', [])
+
         for trip in data:
             if not isinstance(trip, dict):
                 logger.warning(f"Skipping non-dict trip data: {trip}")
                 continue
+
 
             coordinates = []
             timestamp = None
