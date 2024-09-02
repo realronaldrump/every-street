@@ -11,8 +11,9 @@ CLIENT_SECRET = "v023rK8ZLVSh7pp0dhkrRu9rqYonaCbRDLSQ1Hh9JG5VR6REVr"
 REDIRECT_URI = "http://localhost:8080/callback"
 AUTH_CODE = "UfHLWwJJqrJkLyA2uy2a7fJvAsTUOOmkAq2H5Tfkuwc1ZMxsO2"
 
-# Your Device ID 
+# Your Device ID
 VEHICLE_ID = "5f31babdad03810038e10c32"
+
 
 def clean_example(value, max_length=50):
     """Truncate and format example data for brevity."""
@@ -23,6 +24,7 @@ def clean_example(value, max_length=50):
     elif isinstance(value, str):
         return value if len(value) <= max_length else value[:max_length] + "..."
     return str(value)
+
 
 def summarize_data(data, path=""):
     """Recursively summarize the structure and types of the data."""
@@ -46,6 +48,7 @@ def summarize_data(data, path=""):
             summary.extend(summarize_data(data[0], f"{path}[0]"))
     return summary
 
+
 async def fetch_summary_data(session, vehicle_id, date, headers):
     """Fetches trip summary data from Bouncie API."""
     start_time = f"{date}T00:00:00-05:00"
@@ -59,9 +62,10 @@ async def fetch_summary_data(session, vehicle_id, date, headers):
             print(f"Error: Failed to fetch data for {date}. HTTP Status code: {response.status}. Response content: {await response.text()}")
             return None
 
+
 async def explore_api_data(session, vehicle_id, headers, specific_date=None):
     """Explores the Bouncie API to understand available data."""
-    
+
     # Use specific date if provided, otherwise use today
     if specific_date:
         date_to_use = specific_date.strftime("%Y-%m-%d")
@@ -81,6 +85,7 @@ async def explore_api_data(session, vehicle_id, headers, specific_date=None):
         }
     else:
         return None
+
 
 async def main():
     client = AsyncRESTAPIClient(
