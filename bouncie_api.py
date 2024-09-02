@@ -142,7 +142,7 @@ class BouncieAPI:
                     logging.info(f"Successfully fetched data from {start_date} to {end_date}")
                     return await response.json()
                 elif response.status == 401:
-                    logging.warning("Received 401 Unauthorized. Attempting to refresh token.")
+                    logging.warning("Received 401 Unauthorized. Attempting to get a new access token.")
                     return None
                 else:
                     logging.error(f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
@@ -150,8 +150,8 @@ class BouncieAPI:
 
         result = await attempt_fetch()
         if result is None:
-            # If we got a 401, try to refresh the token and fetch again
-            await self.client.refresh_token()
+            # If we got a 401, try to get a new access token and fetch again
+            await self.client.get_access_token()
             result = await attempt_fetch()
 
         return result
