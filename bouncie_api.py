@@ -1,13 +1,15 @@
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
 
-from geopy.distance import geodesic
 from bounciepy import AsyncRESTAPIClient
-from geopy.geocoders import Nominatim
 from dotenv import load_dotenv
-import os
-from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day
+from geopy.distance import geodesic
+from geopy.geocoders import Nominatim
+
+from date_utils import (format_date, get_end_of_day, get_start_of_day,
+                        parse_date)
 
 load_dotenv()
 
@@ -20,6 +22,7 @@ DEVICE_IMEI = os.getenv("DEVICE_IMEI")
 
 ENABLE_GEOCODING = True
 
+
 class BouncieAPI:
     def __init__(self):
         self.client = AsyncRESTAPIClient(
@@ -29,14 +32,16 @@ class BouncieAPI:
             auth_code=AUTH_CODE,
         )
         self.geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
-        self.live_trip_data = {"last_updated": datetime.now(timezone.utc), "data": []}
+        self.live_trip_data = {
+            "last_updated": datetime.now(timezone.utc), "data": []}
 
     async def get_latest_bouncie_data(self):
         try:
             await self.client.get_access_token()
             vehicle_data = await self.client.get_vehicle_by_imei(imei=DEVICE_IMEI)
             if not vehicle_data or "stats" not in vehicle_data:
-                logging.error("No vehicle data or stats found in Bouncie response")
+                logging.error(
+                    "No vehicle data or stats found in Bouncie response")
                 return None
 
             stats = vehicle_data["stats"]
@@ -73,7 +78,8 @@ class BouncieAPI:
             if self.live_trip_data["data"]:
                 last_point = self.live_trip_data["data"][-1]
                 if last_point["timestamp"] == timestamp_unix:
-                    logging.info("Duplicate timestamp found, not adding new data point.")
+                    logging.info(
+                        "Duplicate timestamp found, not adding new data point.")
                     return None  # Skip adding the duplicate point
 
             # If the timestamp is different, add the new point
@@ -130,22 +136,25 @@ class BouncieAPI:
     async def fetch_trip_data(self, start_date, end_date):
         await self.client.get_access_token()
         headers = {"Authorization": f"Bearer {self.client.access_token}"}
-        
+
         start_time = format_date(get_start_of_day(start_date))
         end_time = format_date(get_end_of_day(end_date))
-        
+
         summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
         async with self.client.session.get(summary_url, headers=headers) as response:
             if response.status == 200:
-                logging.info(f"Successfully fetched data from {start_date} to {end_date}")
+                logging.info(
+                    f"Successfully fetched data from {start_date} to {end_date}")
                 return await response.json()
             else:
-                logging.error(f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
+                logging.error(
+                    f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
                 return None
 
     async def get_trip_metrics(self):
-        time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
+        time_since_update = datetime.now(
+            timezone.utc) - self.live_trip_data["last_updated"]
         if time_since_update.total_seconds() > 45:
             self.live_trip_data["data"] = []
 
