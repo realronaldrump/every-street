@@ -38,8 +38,11 @@ logging.basicConfig(
         logging.StreamHandler()
     ]
 )
-
 logger = logging.getLogger(__name__)
+
+def debug_log(message):
+    if config.DEBUG:
+        logger.debug(message)
 
 def login_required(func):
     @functools.wraps(func)
@@ -76,7 +79,6 @@ class HistoricalDataParams(BaseModel):
         return v
 
 class Config(BaseSettings):
-    SECRET_KEY: str = "your_secret_key"
     PIN: str
     CLIENT_ID: str
     CLIENT_SECRET: str
@@ -92,23 +94,29 @@ class Config(BaseSettings):
     OPENAI_API_KEY: str
     USERNAME: str
     PASSWORD: str
+    SECRET_KEY: str  
 
     class Config:
         env_file = ".env"
         env_file_encoding = 'utf-8'
         case_sensitive = False
+        DEBUG: bool = False
 
 config = Config()
 
 def create_app():
     app = cors(Quart(__name__))
     app.config.from_mapping({k: v for k, v in config.dict().items() if k not in ['Config']})
+    app.secret_key = config.SECRET_KEY  # Use the SECRET_KEY from config
+    app.config['SESSION_TYPE'] = 'filesystem'
+    debug_log(f"App configuration: {app.config}")
 
     # Initialize app attributes
     app.historical_data_loaded = False
     app.historical_data_loading = False
     app.is_processing = False
-
+    app.secret_key = os.environ.get('SECRET_KEY') or os.urandom(24)
+    app.config['SESSION_TYPE'] = 'filesystem'
     # Initialize API Clients and Handlers
     app.waco_analyzer = WacoStreetsAnalyzer('static/Waco-Streets.geojson')
     app.geojson_handler = GeoJSONHandler(app.waco_analyzer)
@@ -455,8 +463,10 @@ def create_app():
                 "index.html", 
                 today=today, 
                 historical_data_loaded=app.historical_data_loaded,
-                last_month_start=last_month_start.strftime("%Y-%m-%d")
+                last_month_start=last_month_start.strftime("%Y-%m-%d"),
+                debug=config.DEBUG
             )
+
     # Async Tasks
     async def poll_bouncie_api():
         while True:
@@ -550,6 +560,7 @@ def create_app():
         finally:
             logger.info("Shutdown complete")
 
+    debug_log("App creation completed")
     return app
 
 # Error Handler
@@ -591,7 +602,7 @@ if __name__ == "__main__":
             logger.error(f"Error starting Hypercorn server: {str(e)}", exc_info=True)
             raise
         finally:
-            await app.shutdown()
+            await app_local.shutdown()
 
     logger.info("Starting application...")
     asyncio.run(run_app())

@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       initWacoLimitsLayer(),
       initProgressLayer(),
       initWacoStreetsLayer(),
-      loadHistoricalData(),
+      loadHistoricalData().catch(error => console.error('Historical data loading failed:', error)),
       loadLiveRouteData()
     ]);
 
@@ -82,7 +82,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     showFeedback('Application initialized successfully', 'success');
   } catch (error) {
     console.error('Error initializing application:', error);
-    showFeedback(`Error initializing application: ${error.message}. Please refresh the page.`, 'error');
+    showFeedback(`Error initializing application: ${error.message}. Some features may be unavailable.`, 'error');
+  } finally {
+    hideLoading(); // Ensure loading screen is hidden regardless of success or failure
   }
 });
 
