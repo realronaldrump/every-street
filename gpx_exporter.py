@@ -1,11 +1,16 @@
 import logging
-from lxml import etree
 from datetime import datetime, timezone
-from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day, date_range
+
+from lxml import etree
+
+from date_utils import (date_range, format_date, get_end_of_day,
+                        get_start_of_day, parse_date)
 from logging_config import setup_logging
+
 setup_logging()
 
 logger = logging.getLogger(__name__)
+
 
 class GPXExporter:
     def __init__(self, geojson_handler):
@@ -13,15 +18,18 @@ class GPXExporter:
 
     async def export_to_gpx(self, start_date, end_date, filter_waco, waco_boundary):
         try:
-            logger.info(f"Exporting GPX for date range: {start_date} to {end_date}")
-            logger.info(f"Filter Waco: {filter_waco}, Waco Boundary: {waco_boundary}")
+            logger.info(
+                f"Exporting GPX for date range: {start_date} to {end_date}")
+            logger.info(
+                f"Filter Waco: {filter_waco}, Waco Boundary: {waco_boundary}")
 
             start_date = parse_date(start_date)
             end_date = parse_date(end_date)
 
             waco_limits = None
             if filter_waco:
-                waco_limits = self.geojson_handler.load_waco_boundary(waco_boundary)
+                waco_limits = self.geojson_handler.load_waco_boundary(
+                    waco_boundary)
                 logger.info(f"Loaded Waco limits: {waco_limits is not None}")
 
             filtered_features = []
@@ -33,12 +41,13 @@ class GPXExporter:
                         format_date(get_start_of_day(current_date)),
                         format_date(get_end_of_day(current_date)),
                         filter_waco,
-                        waco_limits, 
+                        waco_limits,
                         self.geojson_handler.monthly_data[month_year]
                     )
                     filtered_features.extend(month_features)
 
-            logger.info(f"Number of filtered features: {len(filtered_features)}")
+            logger.info(
+                f"Number of filtered features: {len(filtered_features)}")
 
             if not filtered_features:
                 logger.warning("No features found after filtering")
@@ -54,7 +63,8 @@ class GPXExporter:
             time.text = format_date(datetime.now(timezone.utc))
 
             for i, feature in enumerate(filtered_features):
-                logger.info(f"Processing feature {i+1}/{len(filtered_features)}")
+                logger.info(
+                    f"Processing feature {i+1}/{len(filtered_features)}")
                 if 'geometry' not in feature or 'coordinates' not in feature['geometry']:
                     logger.warning(f"Invalid feature structure: {feature}")
                     continue
@@ -65,9 +75,11 @@ class GPXExporter:
                 trkseg = etree.SubElement(trk, "trkseg")
 
                 coordinates = feature["geometry"]["coordinates"]
-                timestamps = self.geojson_handler.get_feature_timestamps(feature)
+                timestamps = self.geojson_handler.get_feature_timestamps(
+                    feature)
 
-                logger.info(f"Number of coordinates in feature: {len(coordinates)}")
+                logger.info(
+                    f"Number of coordinates in feature: {len(coordinates)}")
                 for j, coord in enumerate(coordinates):
                     if not isinstance(coord, (list, tuple)) or len(coord) < 2:
                         logger.warning(f"Invalid coordinate: {coord}")
@@ -79,18 +91,23 @@ class GPXExporter:
                         time = etree.SubElement(trkpt, "time")
                         timestamp = timestamps[j]
                         if isinstance(timestamp, (int, float)):
-                            time.text = format_date(datetime.fromtimestamp(timestamp, timezone.utc))
+                            time.text = format_date(
+                                datetime.fromtimestamp(timestamp, timezone.utc))
                         elif isinstance(timestamp, tuple) and len(timestamp) >= 1:
-                            time.text = format_date(datetime.fromtimestamp(timestamp[0], timezone.utc))
+                            time.text = format_date(
+                                datetime.fromtimestamp(timestamp[0], timezone.utc))
                         else:
-                            logger.warning(f"Invalid timestamp format for coordinate {j} in feature {i+1}: {timestamp}")
+                            logger.warning(
+                                f"Invalid timestamp format for coordinate {j} in feature {i+1}: {timestamp}")
                     else:
-                        logger.warning(f"No timestamp for coordinate {j} in feature {i+1}")
+                        logger.warning(
+                            f"No timestamp for coordinate {j} in feature {i+1}")
 
             gpx_data = etree.tostring(
                 gpx, pretty_print=True, xml_declaration=True, encoding="UTF-8"
             )
-            logger.info(f"Successfully created GPX data of length: {len(gpx_data)}")
+            logger.info(
+                f"Successfully created GPX data of length: {len(gpx_data)}")
             return gpx_data
         except Exception as e:
             logger.error(f"Error in export_to_gpx: {str(e)}", exc_info=True)
