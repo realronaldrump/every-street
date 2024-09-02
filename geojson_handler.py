@@ -138,6 +138,10 @@ class GeoJSONHandler:
                 today = datetime.now(tz=timezone.utc)
                 all_trips = await self.bouncie_api.fetch_trip_data(latest_date, today)
 
+                if all_trips is None:
+                    logger.warning("No trips fetched. Skipping processing.")
+                    return
+
                 logger.info(f"Fetched {len(all_trips)} trips")
                 new_features = await self._process_trips_in_batches(all_trips)
                 logger.info(f"Created {len(new_features)} new features from trips")
@@ -152,7 +156,7 @@ class GeoJSONHandler:
 
                 logger.info("Finished update_historical_data")
             except Exception as e:
-                logger.error(f"An error occurred during historical data update: {e}", exc_info=True)
+                logger.error(f"An error occurred during historical data update: {str(e)}", exc_info=True)
                 raise
 
     async def _process_trips_in_batches(self, trips, batch_size=1000):

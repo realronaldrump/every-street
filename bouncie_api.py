@@ -128,21 +128,33 @@ class BouncieAPI:
         return "N/A"
 
     async def fetch_trip_data(self, start_date, end_date):
-        await self.client.get_access_token()
-        headers = {"Authorization": f"Bearer {self.client.access_token}"}
-        
-        start_time = format_date(get_start_of_day(start_date))
-        end_time = format_date(get_end_of_day(end_date))
-        
-        summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
+        async def attempt_fetch():
+            await self.client.get_access_token()
+            headers = {"Authorization": f"Bearer {self.client.access_token}"}
+            
+            start_time = format_date(get_start_of_day(start_date))
+            end_time = format_date(get_end_of_day(end_date))
+            
+            summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
-        async with self.client._session.get(summary_url, headers=headers) as response:
-            if response.status == 200:
-                logging.info(f"Successfully fetched data from {start_date} to {end_date}")
-                return await response.json()
-            else:
-                logging.error(f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
-                return None
+            async with self.client._session.get(summary_url, headers=headers) as response:
+                if response.status == 200:
+                    logging.info(f"Successfully fetched data from {start_date} to {end_date}")
+                    return await response.json()
+                elif response.status == 401:
+                    logging.warning("Received 401 Unauthorized. Attempting to refresh token.")
+                    return None
+                else:
+                    logging.error(f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
+                    return None
+
+        result = await attempt_fetch()
+        if result is None:
+            # If we got a 401, try to refresh the token and fetch again
+            await self.client.refresh_token()
+            result = await attempt_fetch()
+
+        return result
 
     async def get_trip_metrics(self):
         time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
