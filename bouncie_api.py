@@ -134,32 +134,33 @@ class BouncieAPI:
 
     async def fetch_trip_data(self, start_date, end_date):
         async def attempt_fetch():
-            await self.client.get_access_token()
-            headers = {"Authorization": f"Bearer {self.client.access_token}"}
+            await self.client.get_access_token()  # Ensure token is refreshed
 
             start_time = format_date(get_start_of_day(start_date))
             end_time = format_date(get_end_of_day(end_date))
 
             summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
-            async with self.client._session.get(summary_url, headers=headers) as response:
-                logging.debug(f"API Request URL: {summary_url}") 
-                logging.debug(f"Request Headers: {headers}") 
-                logging.debug(f"Response Status: {response.status}")
-                logging.debug(f"Response Body: {await response.text()}")
-                if response.status == 200:
-                    logging.info(f"Successfully fetched data from {start_date} to {end_date}")
-                    return await response.json()
-                elif response.status == 401:
-                    logging.warning("Received 401 Unauthorized. Attempting to get a new access token.")
-                    return None
-                else:
-                    logging.error(f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
-                    return None
+            # Use bounciepy's client for the request to handle authorization
+            response = await self.client._request("GET", summary_url)  
+
+            logging.debug(f"API Request URL: {summary_url}") 
+            logging.debug(f"Response Status: {response.status}")
+            logging.debug(f"Response Body: {await response.text()}")
+
+            if response.status == 200:
+                logging.info(f"Successfully fetched data from {start_date} to {end_date}")
+                return await response.json()
+            elif response.status == 401:
+                logging.warning("Received 401 Unauthorized. Attempting to get a new access token.")
+                return None  # Let the outer function handle retry
+            else:
+                logging.error(f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
+                return None
 
         result = await attempt_fetch()
         if result is None:
-            # If we got a 401, try to get a new access token and fetch again
+            # Retry once after refreshing the token
             await self.client.get_access_token()
             result = await attempt_fetch()
 

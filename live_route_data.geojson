@@ -394,6 +394,45 @@
             "properties": {
                 "timestamp": 1725134431
             }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    -107.2379237,
+                    39.1830416
+                ]
+            },
+            "properties": {
+                "timestamp": 1725134431
+            }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    -107.2379237,
+                    39.1830416
+                ]
+            },
+            "properties": {
+                "timestamp": 1725134431
+            }
+        },
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [
+                    -107.2379237,
+                    39.1830416
+                ]
+            },
+            "properties": {
+                "timestamp": 1725134431
+            }
         }
     ]
 }
