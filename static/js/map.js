@@ -86,6 +86,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Initialize the Leaflet map
 function initMap() {
   try {
+    if (map) {
+      console.warn('Map is already initialized. Skipping re-initialization.');
+      return map;
+    }
+
     const map = L.map('map').fitBounds(MCLENNAN_COUNTY_BOUNDS);
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
@@ -1088,5 +1093,4 @@ function delay(ms) {
 // Initialize the application when the DOM is fully loaded
 document.addEventListener('DOMContentLoaded', () => {
   setupEventListeners();
-  initMap();
 });

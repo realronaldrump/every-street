@@ -59,8 +59,6 @@ class BouncieAPI:
             if timestamp_unix is None:
                 return None
 
-            battery_state = self._get_battery_state(stats["battery"]["status"])
-
             logger.info(
                 f"Latest Bouncie data retrieved: {location['lat']}, {location['lon']} at {timestamp_unix}"
             )
@@ -68,7 +66,6 @@ class BouncieAPI:
                 "latitude": location["lat"],
                 "longitude": location["lon"],
                 "timestamp": timestamp_unix,
-                "battery_state": battery_state,
                 "speed": stats["speed"],
                 "device_id": DEVICE_IMEI,
                 "address": location_address,
@@ -133,16 +130,6 @@ class BouncieAPI:
         except Exception as e:
             logger.error(f"Error converting timestamp: {e}")
             return None
-
-    @staticmethod
-    def _get_battery_state(bouncie_status):
-        return (
-            "full"
-            if bouncie_status == "normal"
-            else "unplugged"
-            if bouncie_status == "low"
-            else "unknown"
-        )
 
     @staticmethod
     def _format_address(address):
