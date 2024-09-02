@@ -136,7 +136,7 @@ class BouncieAPI:
         
         summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
-        async with self.client.session.get(summary_url, headers=headers) as response:
+        async with self.client._session.get(summary_url, headers=headers) as response:
             if response.status == 200:
                 logging.info(f"Successfully fetched data from {start_date} to {end_date}")
                 return await response.json()
