@@ -275,7 +275,6 @@ async function loadHistoricalData() {
   showFeedback('Error loading historical data. Please refresh the page.', 'error');
 }
 
-// Fetch historical data based on filter settings
 async function fetchHistoricalData(startDate = null, endDate = null) {
   const filterWaco = document.getElementById('filterWaco').checked;
   const wacoBoundary = document.getElementById('wacoBoundarySelect').value;
@@ -292,23 +291,14 @@ async function fetchHistoricalData(startDate = null, endDate = null) {
   }
 
   const data = await response.json();
-  
-  // Check if the data is in GeoDataFrame format and convert if necessary
-  if (data.features && Array.isArray(data.features)) {
-    return {
-      type: "FeatureCollection",
-      features: data.features.map(feature => ({
-        type: "Feature",
-        geometry: feature.geometry,
-        properties: {
-          timestamp: feature.timestamp,
-          // Add any other properties you need
-        }
-      }))
-    };
+
+  // Ensure data is in valid GeoJSON format (add type if missing)
+  if (!data.type || data.type !== 'FeatureCollection') {
+    console.warn('Historical data missing "FeatureCollection" type. Correcting...');
+    data.type = 'FeatureCollection';
   }
 
-  return data; // If it's already in GeoJSON format, return as is
+  return data; // Return the data directly, no conversion needed
 }
 
 // Update the visibility of the historical data layer based on checkbox state

@@ -20,7 +20,7 @@ from quart import (Quart, Response, jsonify, redirect, render_template,
 from quart_cors import cors
 
 from bouncie_api import BouncieAPI
-from date_utils import date_range, format_date
+from date_utils import date_range, format_date, timedelta
 from geojson_handler import GeoJSONHandler
 from gpx_exporter import GPXExporter
 from waco_streets_analyzer import WacoStreetsAnalyzer
@@ -446,9 +446,17 @@ def create_app():
     @login_required
     async def index():
         today = datetime.now().strftime("%Y-%m-%d")
+        
+        # Calculate the start date for the last month
+        last_month_start = (date.today().replace(day=1) - timedelta(days=1)).replace(day=1)
+        
         async with app.historical_data_lock:
-            return await render_template("index.html", today=today, historical_data_loaded=app.historical_data_loaded)
-
+            return await render_template(
+                "index.html", 
+                today=today, 
+                historical_data_loaded=app.historical_data_loaded,
+                last_month_start=last_month_start.strftime("%Y-%m-%d")
+            )
     # Async Tasks
     async def poll_bouncie_api():
         while True:
