@@ -388,7 +388,7 @@ def create_app():
             try:
                 app.is_processing = True
                 logger.info("Starting historical data update process")
-                await geojson_handler.update_historical_data(fetch_all=True)  # Call the method from geojson_handler
+                await geojson_handler.update_historical_data(fetch_all=True)
                 logger.info("Historical data update process completed")
                 return jsonify({"message": "Historical data updated successfully!"}), 200
             except Exception as e:
