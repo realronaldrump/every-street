@@ -125,7 +125,7 @@ class GeoJSONHandler:
                 logger.info("Starting update_historical_data")
 
                 if fetch_all:
-                    start_date = datetime(2020, 8, 1, tzinfo=timezone.utc) 
+                    start_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
                     logger.info(f"Fetching all data starting from {start_date}")
                 elif self.historical_geojson_features:
                     latest_timestamp = max(
@@ -142,21 +142,32 @@ class GeoJSONHandler:
                 end_date = datetime.now(tz=timezone.utc)
                 logger.info(f"Fetching data until {end_date}")
 
-                all_trips = await self.bouncie_api.fetch_trip_data(start_date, end_date)
-                logger.info(f"Fetched {len(all_trips)} trips from BouncieAPI")
+                current_date = start_date
+                with tqdm(total=(end_date - start_date).days, desc="Fetching historical data", unit="day") as pbar:
+                    while current_date <= end_date:
+                        try:
+                            logger.info(f"Fetching trips for {current_date.strftime('%Y-%m-%d')}")
+                            trips = await self.bouncie_api.fetch_trip_data(current_date, current_date)
+                            logger.info(f"Fetched {len(trips)} trips for {current_date.strftime('%Y-%m-%d')}")
 
-                if all_trips:
-                    new_features = await self._process_trips_in_batches(all_trips)
-                    logger.info(f"Created {len(new_features)} new features from trips")
+                            if trips:
+                                new_features = await self._process_trips_in_batches(trips)
+                                logger.info(f"Created {len(new_features)} new features from trips on {current_date}")
 
-                    if new_features:
-                        await self._update_monthly_files(new_features)
-                        self.historical_geojson_features.extend(new_features)
-                        logger.info(f"Added {len(new_features)} new features to historical_geojson_features")
+                                if new_features:
+                                    await self._update_monthly_files(new_features)
+                                    self.historical_geojson_features.extend(new_features)
+                                    logger.info(f"Added {len(new_features)} new features to historical_geojson_features")
 
-                    logger.info("Calling update_all_progress")
-                    await self.update_all_progress()
-                    logger.info("Finished update_all_progress")
+                                    await self.update_all_progress()
+                            else:
+                                logger.info(f"No trips found for {current_date.strftime('%Y-%m-%d')}")
+
+                        except Exception as e:
+                            logger.error(f"Error processing data for {current_date}: {str(e)}", exc_info=True)
+
+                        current_date += timedelta(days=1)
+                        pbar.update(1)
 
                 logger.info("Finished update_historical_data")
             except Exception as e:
@@ -164,18 +175,20 @@ class GeoJSONHandler:
                 raise
 
     async def find_first_data_date(self):
-        start_date = datetime(2024, 6, 1, tzinfo=timezone.utc)  # Adjust this to your earliest possible data date
+        start_date = datetime(2020, 8, 1, tzinfo=timezone.utc)  # Your specified start date
         end_date = datetime.now(tz=timezone.utc)
-        step = timedelta(days=30)
+        step = timedelta(days=1)  # Check day by day
 
-        while start_date < end_date:
-            chunk_end = min(start_date + step, end_date)
-            trips = await self.bouncie_api.fetch_trip_data(start_date, chunk_end)
-            
-            if trips:
-                return start_date
-            
-            start_date += step
+        with tqdm(total=(end_date - start_date).days, desc="Finding first data date", unit="day") as pbar:
+            while start_date < end_date:
+                trips = await self.bouncie_api.fetch_trip_data(start_date, start_date)  # Fetch data for a single day
+                
+                if trips:
+                    logger.info(f"Found first data date: {start_date}")
+                    return start_date
+                
+                start_date += step
+                pbar.update(1)
 
         raise Exception("No data found in the specified date range")
 
@@ -209,6 +222,7 @@ class GeoJSONHandler:
             return []
 
     async def _update_monthly_files(self, new_features):
+        logger.info(f"Starting _update_monthly_files with {len(new_features)} new features")
         for feature in new_features:
             # Ensure that the coordinates are JSON serializable
             coordinates = feature["geometry"]["coordinates"]
@@ -228,12 +242,32 @@ class GeoJSONHandler:
         # Write the updated features to the corresponding monthly files
         for month_year, features in self.monthly_data.items():
             filename = f"static/historical_data_{month_year}.geojson"
-            async with aiofiles.open(filename, "w") as f:
-                await f.write(json.dumps({
-                    "type": "FeatureCollection",
-                    "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
-                    "features": features
-                }, indent=4))
+            logger.info(f"Updating file: {filename}")
+
+            try:
+                # Check if the file exists
+                if os.path.exists(filename):
+                    # Load existing data
+                    async with aiofiles.open(filename, "r") as f:
+                        existing_data = json.loads(await f.read())
+                        existing_features = existing_data.get("features", [])
+                else:
+                    existing_features = []
+
+                # Append new features to existing features
+                all_features = existing_features + features
+
+                # Write all features to the file
+                async with aiofiles.open(filename, "w") as f:
+                    await f.write(json.dumps({
+                        "type": "FeatureCollection",
+                        "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+                        "features": all_features
+                    }, indent=4))
+
+                logger.info(f"Successfully wrote {len(all_features)} features to {filename}")
+            except Exception as e:
+                logger.error(f"Error writing to file {filename}: {str(e)}", exc_info=True)
 
         logger.info(f"Updated monthly files with {len(new_features)} new features")
 
@@ -256,6 +290,11 @@ class GeoJSONHandler:
 
         if bounds:
             bounding_box = box(*bounds)
+
+        # Check if monthly_data is empty (no historical data loaded)
+        if not self.monthly_data:
+            logger.warning("No historical data loaded yet. Returning empty features.")
+            return filtered_features
 
         for month_year, features in self.monthly_data.items():
             month_start = datetime.strptime(month_year, "%Y-%m").replace(tzinfo=timezone.utc)
@@ -347,3 +386,22 @@ class GeoJSONHandler:
     def get_all_routes(self):
         logger.info(f"Retrieving all routes. Total features: {len(self.historical_geojson_features)}")
         return self.historical_geojson_features
+
+# End of GeoJSONHandler class
+
+# You might want to add any additional utility functions or classes here if needed
+
+# For example, you could add a function to ensure the 'static' directory exists:
+
+def ensure_static_directory():
+    static_dir = 'static'
+    if not os.path.exists(static_dir):
+        logger.info(f"Creating 'static' directory at {os.path.abspath(static_dir)}")
+        os.makedirs(static_dir)
+    else:
+        logger.info(f"'static' directory already exists at {os.path.abspath(static_dir)}")
+
+# Call this function when initializing your application
+ensure_static_directory()
+
+# End of file
