@@ -4,8 +4,10 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 from geopy.distance import geodesic
 from bounciepy import AsyncRESTAPIClient
+from bounciepy.exceptions import BouncieException
 from geopy.geocoders import Nominatim
 import os
+import aiohttp
 from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day
 
 # Use os.getenv directly for environment variables
@@ -14,15 +16,14 @@ CLIENT_SECRET = "v023rK8ZLVSh7pp0dhkrRu9rqYonaCbRDLSQ1Hh9JG5VR6REVr"
 REDIRECT_URI = "http://localhost:8080/callback"
 AUTH_CODE = "UfHLWwJJqrJkLyA2uy2a7fJvAsTUOOmkAq2H5Tfkuwc1ZMxsO2"
 DEVICE_IMEI = "352602113969379"
-
-# Your Device ID 
 VEHICLE_ID = "5f31babdad03810038e10c32"
 
-ENABLE_GEOCODING = os.getenv("ENABLE_GEOCODING", "False").lower() == "true" 
+ENABLE_GEOCODING = os.getenv("ENABLE_GEOCODING", "False").lower() == "true"
+
+logger = logging.getLogger(__name__)
 
 class BouncieAPI:
     def __init__(self):
-        # Verify that required environment variables are set
         if not all([CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, AUTH_CODE, VEHICLE_ID, DEVICE_IMEI]):
             raise ValueError("Missing required environment variables for BouncieAPI")
 
@@ -35,20 +36,68 @@ class BouncieAPI:
         self.geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
         self.live_trip_data = {"last_updated": datetime.now(timezone.utc), "data": []}
 
+    async def get_access_token(self):
+        try:
+            success = await self.client.get_access_token()
+            if not success:
+                logger.error("Failed to obtain access token.")
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Error getting access token: {e}")
+            return False
+
+    async def fetch_summary_data(self, session, date):
+        start_time = f"{date}T00:00:00-05:00"
+        end_time = f"{date}T23:59:59-05:00"
+        summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
+
+        headers = {
+            "Accept": "application/json",
+            "Authorization": self.client.access_token,
+            "Content-Type": "application/json"
+        }
+
+        async with session.get(summary_url, headers=headers) as response:
+            if response.status == 200:
+                return await response.json()
+            else:
+                logger.error(f"Error: Failed to fetch data for {date}. HTTP Status code: {response.status}")
+                return None
+
+    async def fetch_trip_data(self, start_date, end_date):
+        if not await self.get_access_token():
+            return None
+
+        all_trips = []
+        current_date = start_date
+        async with aiohttp.ClientSession() as session:
+            while current_date <= end_date:
+                date_str = current_date.strftime("%Y-%m-%d")
+                logger.info(f"Fetching trips for: {date_str}")
+                trips_data = await self.fetch_summary_data(session, date_str)
+
+                if trips_data:
+                    all_trips.extend(trips_data)
+
+                current_date += timedelta(days=1)
+                await asyncio.sleep(0.1)  # Small delay to prevent overwhelming the API
+
+        return all_trips
+
     async def get_latest_bouncie_data(self):
         try:
-            # Refresh the access token before making the API call
-            await self.client.get_access_token()
+            await self.get_access_token()
             vehicle_data = await self.client.get_vehicle_by_imei(imei=DEVICE_IMEI)
             if not vehicle_data or "stats" not in vehicle_data:
-                logging.error("No vehicle data or stats found in Bouncie response")
+                logger.error("No vehicle data or stats found in Bouncie response")
                 return None
 
             stats = vehicle_data["stats"]
             location = stats.get("location", {})
 
             if not location:
-                logging.error("No location data found in Bouncie stats")
+                logger.error("No location data found in Bouncie stats")
                 return None
 
             location_address = (
@@ -62,26 +111,20 @@ class BouncieAPI:
                 timestamp_dt = parse_date(timestamp_iso)
                 timestamp_unix = int(timestamp_dt.timestamp())
             except Exception as e:
-                logging.error(f"Error converting timestamp: {e}")
+                logger.error(f"Error converting timestamp: {e}")
                 return None
 
             bouncie_status = stats.get("battery", {}).get("status", "unknown")
             battery_state = (
-                "full"
-                if bouncie_status == "normal"
-                else "unplugged"
-                if bouncie_status == "low"
+                "full" if bouncie_status == "normal"
+                else "unplugged" if bouncie_status == "low"
                 else "unknown"
             )
 
-            # Check the last entry in live_trip_data before adding the new one
-            if self.live_trip_data["data"]:
-                last_point = self.live_trip_data["data"][-1]
-                if last_point["timestamp"] == timestamp_unix:
-                    logging.info("Duplicate timestamp found, not adding new data point.")
-                    return None  # Skip adding the duplicate point
+            if self.live_trip_data["data"] and self.live_trip_data["data"][-1]["timestamp"] == timestamp_unix:
+                logger.info("Duplicate timestamp found, not adding new data point.")
+                return None
 
-            # If the timestamp is different, add the new point
             new_data_point = {
                 "latitude": location.get("lat"),
                 "longitude": location.get("lon"),
@@ -94,13 +137,11 @@ class BouncieAPI:
             self.live_trip_data["data"].append(new_data_point)
             self.live_trip_data["last_updated"] = datetime.now(timezone.utc)
 
-            logging.info(
-                f"Latest Bouncie data retrieved: {location.get('lat')}, {location.get('lon')} at {timestamp_unix}"
-            )
+            logger.info(f"Latest Bouncie data retrieved: {location.get('lat')}, {location.get('lon')} at {timestamp_unix}")
             return new_data_point
 
         except Exception as e:
-            logging.error(f"An error occurred while fetching live data: {e}")
+            logger.error(f"An error occurred while fetching live data: {e}")
             return None
 
     async def reverse_geocode(self, lat, lon, retries=3):
@@ -109,62 +150,18 @@ class BouncieAPI:
                 location = await asyncio.to_thread(self.geolocator.reverse, (lat, lon), addressdetails=True)
                 if location:
                     address = location.raw["address"]
-                    place = address.get("place", "")
-                    building = address.get("building", "")
-                    house_number = address.get("house_number", "")
-                    road = address.get("road", "")
-                    city = address.get("city", "")
-                    state = address.get("state", "")
-                    postcode = address.get("postcode", "")
-
-                    formatted_address = f"{place}<br>" if place else ""
-                    formatted_address += f"{building}<br>" if building else ""
-                    formatted_address += f"{house_number} {road}<br>{city}, {state} {postcode}"
-
-                    return formatted_address
+                    formatted_address = f"{address.get('place', '')}<br>"
+                    formatted_address += f"{address.get('building', '')}<br>"
+                    formatted_address += f"{address.get('house_number', '')} {address.get('road', '')}<br>"
+                    formatted_address += f"{address.get('city', '')}, {address.get('state', '')} {address.get('postcode', '')}"
+                    return formatted_address.strip("<br>")
                 else:
                     return "N/A"
             except Exception as e:
-                logging.error(
-                    f"Reverse geocoding attempt {attempt + 1} failed with error: {e}"
-                )
+                logger.error(f"Reverse geocoding attempt {attempt + 1} failed with error: {e}")
                 if attempt < retries - 1:
                     await asyncio.sleep(1)
         return "N/A"
-
-    async def fetch_trip_data(self, start_date, end_date):
-        async def attempt_fetch():
-            await self.client.get_access_token()  # Ensure token is refreshed
-
-            start_time = format_date(get_start_of_day(start_date))
-            end_time = format_date(get_end_of_day(end_date))
-
-            summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
-
-            # Use bounciepy's client for the request to handle authorization
-            response = await self.client._request("GET", summary_url)  
-
-            logging.debug(f"API Request URL: {summary_url}") 
-            logging.debug(f"Response Status: {response.status}")
-            logging.debug(f"Response Body: {await response.text()}")
-
-            if response.status == 200:
-                logging.info(f"Successfully fetched data from {start_date} to {end_date}")
-                return await response.json()
-            elif response.status == 401:
-                logging.warning("Received 401 Unauthorized. Attempting to get a new access token.")
-                return None  # Let the outer function handle retry
-            else:
-                logging.error(f"Error fetching data from {start_date} to {end_date}. Status: {response.status}")
-                return None
-
-        result = await attempt_fetch()
-        if result is None:
-            # Retry once after refreshing the token
-            await self.client.get_access_token()
-            result = await attempt_fetch()
-
-        return result
 
     async def get_trip_metrics(self):
         time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
@@ -204,7 +201,7 @@ class BouncieAPI:
             "end_time": format_date(datetime.fromtimestamp(end_time, timezone.utc)) if end_time else "N/A",
         }
 
-        logging.info(f"Returning trip metrics: {formatted_metrics}")
+        logger.info(f"Returning trip metrics: {formatted_metrics}")
         return formatted_metrics
 
     def _format_time(self, seconds):
@@ -216,14 +213,14 @@ class BouncieAPI:
     @staticmethod
     def create_geojson_features_from_trips(data):
         features = []
-        logging.info(f"Processing {len(data)} trips")
+        logger.info(f"Processing {len(data)} trips")
 
         if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
             data = data[0].get('bands', [])
 
         for trip in data:
             if not isinstance(trip, dict):
-                logging.warning(f"Skipping non-dict trip data: {trip}")
+                logger.warning(f"Skipping non-dict trip data: {trip}")
                 continue
 
             coordinates = []
@@ -231,21 +228,21 @@ class BouncieAPI:
             for band in trip.get("bands", []):
                 for path in band.get("paths", []):
                     path_array = np.array(path)
-                    if path_array.shape[1] >= 5: # Check for lat, lon, timestamp at least
+                    if path_array.shape[1] >= 5:  # Check for lat, lon, timestamp at least
                         coordinates.extend(path_array[:, [1, 0]])  # lon, lat
                         timestamp = path_array[-1, 4]  # last timestamp
                     else:
-                        logging.warning(f"Skipping invalid path: {path}")
+                        logger.warning(f"Skipping invalid path: {path}")
 
             if len(coordinates) > 1 and timestamp is not None:
                 feature = {
                     "type": "Feature",
-                    "geometry": {"type": "LineString", "coordinates": coordinates.tolist()},
+                    "geometry": {"type": "LineString", "coordinates": coordinates},  # Removed .tolist()
                     "properties": {"timestamp": int(timestamp)},
                 }
                 features.append(feature)
             else:
-                logging.warning(f"Skipping trip with insufficient data: coordinates={len(coordinates)}, timestamp={timestamp}")
+                logger.warning(f"Skipping trip with insufficient data: coordinates={len(coordinates)}, timestamp={timestamp}")
 
-        logging.info(f"Created {len(features)} GeoJSON features from trip data")
-        return features
+        logger.info(f"Created {len(features)} GeoJSON features from trip data")
+        return features 

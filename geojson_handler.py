@@ -20,7 +20,6 @@ VEHICLE_ID = os.getenv("VEHICLE_ID")
 
 logger = logging.getLogger(__name__)
 
-
 class GeoJSONHandler:
     def __init__(self, waco_analyzer):
         self.bouncie_api = BouncieAPI()
@@ -124,31 +123,28 @@ class GeoJSONHandler:
                 logger.info("Starting update_historical_data")
 
                 if fetch_all:
-                    latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+                    start_date = datetime(2020, 8, 1, tzinfo=timezone.utc)  # Adjust this to your earliest known data date
                 elif self.historical_geojson_features:
                     latest_timestamp = max(
                         feature["properties"]["timestamp"]
                         for feature in self.historical_geojson_features
                         if feature["properties"].get("timestamp") is not None
                     )
-                    latest_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc)
+                    start_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc) + timedelta(days=1)
                 else:
-                    latest_date = datetime(2020, 8, 1, tzinfo=timezone.utc)
+                    start_date = await self.find_first_data_date()
 
-                today = datetime.now(tz=timezone.utc)
-                all_trips = await self.bouncie_api.fetch_trip_data(latest_date, today)
+                end_date = datetime.now(tz=timezone.utc)
+                
+                all_trips = await self.bouncie_api.fetch_trip_data(start_date, end_date)
 
-                if all_trips is None:
-                    logger.warning("No trips fetched. Skipping processing.")
-                    return
+                if all_trips:
+                    new_features = await self._process_trips_in_batches(all_trips)
+                    logger.info(f"Created {len(new_features)} new features from trips")
 
-                logger.info(f"Fetched {len(all_trips)} trips")
-                new_features = await self._process_trips_in_batches(all_trips)
-                logger.info(f"Created {len(new_features)} new features from trips")
-
-                if new_features:
-                    await self._update_monthly_files(new_features)
-                    self.historical_geojson_features.extend(new_features)
+                    if new_features:
+                        await self._update_monthly_files(new_features)
+                        self.historical_geojson_features.extend(new_features)
 
                     logger.info("Calling update_all_progress")
                     await self.update_all_progress()
@@ -159,11 +155,27 @@ class GeoJSONHandler:
                 logger.error(f"An error occurred during historical data update: {str(e)}", exc_info=True)
                 raise
 
+    async def find_first_data_date(self):
+        start_date = datetime(2020, 8, 1, tzinfo=timezone.utc)  # Adjust this to your earliest possible data date
+        end_date = datetime.now(tz=timezone.utc)
+        step = timedelta(days=30)
+
+        while start_date < end_date:
+            chunk_end = min(start_date + step, end_date)
+            trips = await self.bouncie_api.fetch_trip_data(start_date, chunk_end)
+            
+            if trips:
+                return start_date
+            
+            start_date += step
+
+        raise Exception("No data found in the specified date range")
+
     async def _process_trips_in_batches(self, trips, batch_size=1000):
         new_features = []
         for i in range(0, len(trips), batch_size):
             batch = trips[i:i+batch_size]
-            batch_features = await asyncio.to_thread(self.create_geojson_features_from_trips, batch)
+            batch_features = await asyncio.to_thread(self.bouncie_api.create_geojson_features_from_trips, batch)
             new_features.extend(batch_features)
             await asyncio.sleep(0)  # Allow other tasks to run
         return new_features
@@ -263,44 +275,6 @@ class GeoJSONHandler:
         except Exception as e:
             logger.error(f"Error updating progress: {str(e)}", exc_info=True)
             raise
-
-    @staticmethod
-    def create_geojson_features_from_trips(data):
-        features = []
-        logger.info(f"Processing {len(data)} trips")
-
-        if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
-            data = data[0].get('bands', [])
-
-        for trip in data:
-            if not isinstance(trip, dict):
-                logger.warning(f"Skipping non-dict trip data: {trip}")
-                continue
-
-
-            coordinates = []
-            timestamp = None
-            for band in trip.get("bands", []):
-                for path in band.get("paths", []):
-                    path_array = np.array(path)
-                    if path_array.shape[1] >= 6:
-                        coordinates.extend(path_array[:, [1, 0]])  # lon, lat
-                        timestamp = path_array[-1, 4]  # last timestamp
-                    else:
-                        logger.warning(f"Skipping invalid path: {path}")
-
-            if len(coordinates) > 1 and timestamp is not None:
-                feature = {
-                    "type": "Feature",
-                    "geometry": {"type": "LineString", "coordinates": coordinates.tolist()},
-                    "properties": {"timestamp": int(timestamp)},
-                }
-                features.append(feature)
-            else:
-                logger.warning(f"Skipping trip with insufficient data: coordinates={len(coordinates)}, timestamp={timestamp}")
-
-        logger.info(f"Created {len(features)} GeoJSON features from trip data")
-        return features
 
     async def initialize_data(self):
         try:
