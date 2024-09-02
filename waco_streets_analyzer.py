@@ -1,7 +1,7 @@
 import logging
 import os
 import pickle
-
+import asyncio
 import geopandas as gpd
 from shapely.geometry import LineString
 
@@ -50,7 +50,7 @@ class WacoStreetsAnalyzer:
                 'traveled_streets': self.traveled_streets
             }, f)
 
-    def update_progress(self, routes):
+    async def update_progress(self, routes):  # Make the function asynchronous
         logging.info(f"Updating progress with {len(routes)} new routes...")
         if not routes:
             logging.warning("No routes provided for update_progress")
@@ -77,6 +77,8 @@ class WacoStreetsAnalyzer:
                     logging.warning(f"Route did not intersect with any streets")
                 else:
                     logging.info(f"Route intersected with {len(intersected_streets)} streets")
+
+            await asyncio.sleep(0)  # Yield control to the event loop
 
         self._save_to_cache()
         logging.info(f"Total traveled streets: {len(self.traveled_streets)}")

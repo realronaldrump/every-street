@@ -13,6 +13,7 @@ const PROGRESS_UPDATE_INTERVAL = 60000; // Update progress every minute
 const PROGRESS_DATA_UPDATE_INTERVAL = 300000; // Update progress data every 5 minutes
 const LIVE_DATA_AND_METRICS_UPDATE_INTERVAL = 3000; // Update live data and metrics every 3 seconds
 const FEEDBACK_DURATION = 5000; // Default duration for feedback messages
+const LIVE_DATA_TIMEOUT = 5000; // Timeout for live data requests (in milliseconds)
 
 // Custom marker icons
 const BLUE_BLINKING_MARKER_ICON = L.divIcon({
@@ -49,6 +50,8 @@ let isPlaying = false;
 let currentCoordIndex = 0;
 let playbackAnimation;
 let isProcessing = false;
+let searchMarker;
+let liveDataFetchController = null; // AbortController for live data requests
 const processingQueue = [];
 
 // Initialize the application
@@ -86,22 +89,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Initialize the Leaflet map
 function initMap() {
   try {
-    if (map) {
-      console.warn('Map is already initialized. Skipping re-initialization.');
-      return map;
-    }
-
-    const map = L.map('map').fitBounds(MCLENNAN_COUNTY_BOUNDS);
+    const newMap = L.map('map').fitBounds(MCLENNAN_COUNTY_BOUNDS);
 
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       maxZoom: 19
-    }).addTo(map);
+    }).addTo(newMap);
 
     // Create map panes with correct z-index order
-    map.createPane('wacoLimitsPane').style.zIndex = 400;
-    map.createPane('progressPane').style.zIndex = 410;
-    map.createPane('historicalDataPane').style.zIndex = 430;
-    map.createPane('wacoStreetsPane').style.zIndex = 440;
+    newMap.createPane('wacoLimitsPane').style.zIndex = 400;
+    newMap.createPane('progressPane').style.zIndex = 410;
+    newMap.createPane('historicalDataPane').style.zIndex = 430;
+    newMap.createPane('wacoStreetsPane').style.zIndex = 440;
 
     // Add progress controls
     const progressControl = L.control({ position: 'bottomleft' });
@@ -110,11 +108,11 @@ function initMap() {
       div.innerHTML = '<div id="progress-bar-container"><div id="progress-bar"></div></div><div id="progress-text"></div>';
       return div;
     };
-    progressControl.addTo(map);
+    progressControl.addTo(newMap);
 
     // Initialize drawing tools
     drawnItems = new L.FeatureGroup();
-    map.addLayer(drawnItems);
+    newMap.addLayer(drawnItems);
 
     const drawControl = new L.Control.Draw({
       draw: {
@@ -129,21 +127,21 @@ function initMap() {
         featureGroup: drawnItems
       }
     });
-    map.addControl(drawControl);
+    newMap.addControl(drawControl);
 
     // Event listeners for drawing tools
-    map.on(L.Draw.Event.CREATED, (e) => {
+    newMap.on(L.Draw.Event.CREATED, (e) => {
       drawnItems.addLayer(e.layer);
       filterHistoricalDataByPolygon(e.layer);
     });
 
-    map.on(L.Draw.Event.EDITED, (e) => {
+    newMap.on(L.Draw.Event.EDITED, (e) => {
       e.layers.eachLayer(filterHistoricalDataByPolygon);
     });
 
-    map.on(L.Draw.Event.DELETED, displayHistoricalData);
+    newMap.on(L.Draw.Event.DELETED, displayHistoricalData);
 
-    return map;
+    return newMap;
   } catch (error) {
     console.error('Error initializing map:', error);
     showFeedback('Error initializing map. Please refresh the page.', 'error');
@@ -211,7 +209,7 @@ function updateProgressLayerVisibility() {
 // Initialize the Waco streets layer
 async function initWacoStreetsLayer() {
   try {
-    wacoStreetsLayer = L.geoJSON(await fetchGeoJSON('/static/Waco-Streets.geojson'), {
+    wacoStreetsLayer = L.geoJSON(await fetchGeoJSON('/static/waco-streets.geojson'), {
       style: {
         color: '#808080',
         weight: 1,
@@ -239,9 +237,14 @@ function updateWacoStreetsLayerVisibility() {
 // Load historical data from the server
 async function loadHistoricalData() {
   let historicalDataLoadAttempts = 0;
+  let daysAgo = 0; // Start with yesterday
+
   while (historicalDataLoadAttempts < MAX_HISTORICAL_DATA_LOAD_ATTEMPTS) {
     try {
-      const data = await fetchHistoricalData();
+      const startDate = daysAgo === 0 ? formatDate(yesterday()) : formatDate(daysAgoDaysAgo(daysAgo));
+      const endDate = daysAgo === 0 ? formatDate(today()) : formatDate(daysAgoDaysAgo(daysAgo - 1));
+      const data = await fetchHistoricalData(startDate, endDate);
+
       if (data?.features && data.features.length > 0) {
         historicalDataLayer = L.geoJSON(data, {
           style: {
@@ -257,27 +260,30 @@ async function loadHistoricalData() {
         showFeedback('Historical data loaded successfully', 'success');
         return;
       } else {
+        daysAgo++; // Try data from a few days ago
         throw new Error('Invalid or empty historical data received');
       }
     } catch (error) {
       console.error('Error loading historical data:', error);
       showFeedback('Error loading historical data. Retrying...', 'error');
     }
+
     historicalDataLoadAttempts++;
     await delay(5000); // Wait 5 seconds before retrying
   }
+
   showFeedback('Error loading historical data. Please refresh the page.', 'error');
 }
 
 // Fetch historical data based on filter settings
-async function fetchHistoricalData() {
-  const startDate = document.getElementById('startDate').value;
-  const endDate = document.getElementById('endDate').value;
+async function fetchHistoricalData(startDate = null, endDate = null) {
   const filterWaco = document.getElementById('filterWaco').checked;
   const wacoBoundary = document.getElementById('wacoBoundarySelect').value;
+  const startDateParam = startDate || document.getElementById('startDate').value;
+  const endDateParam = endDate || document.getElementById('endDate').value;
 
   const response = await fetch(
-    `/historical_data?startDate=${startDate}&endDate=${endDate}` +
+    `/historical_data?startDate=${startDateParam}&endDate=${endDateParam}` +
     `&filterWaco=${filterWaco}&wacoBoundary=${wacoBoundary}`
   );
 
@@ -368,20 +374,42 @@ function updateLiveData(liveData) {
 
 // Update live data and metrics
 async function updateLiveDataAndMetrics() {
+  if (liveDataFetchController) {
+    liveDataFetchController.abort(); // Abort any previous requests
+  }
+
+  liveDataFetchController = new AbortController();
+  const signal = liveDataFetchController.signal;
+
   try {
-    const [liveData, metrics] = await Promise.all([
-      fetchJSON('/live_data'),
-      fetchJSON('/trip_metrics')
+    const liveDataPromise = fetchJSON('/live_data', { signal });
+    const metricsPromise = fetchJSON('/trip_metrics');
+
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Live data request timed out')), LIVE_DATA_TIMEOUT);
+    });
+
+    const [liveData, metrics] = await Promise.race([
+      Promise.all([liveDataPromise, metricsPromise]),
+      timeoutPromise
     ]);
+
     if (!liveData.error) {
       updateLiveData(liveData);
     } else {
       console.error('Error fetching live data:', liveData.error);
+      showFeedback('Device offline or no live data available', 'warning');
     }
     animateStatUpdates(metrics);
   } catch (error) {
-    console.error('Error updating live data and metrics:', error);
-    showFeedback('Error updating live data and metrics', 'error');
+    if (error.name === 'AbortError') {
+      console.log('Live data request aborted');
+    } else {
+      console.error('Error updating live data and metrics:', error);
+      showFeedback('Error updating live data and metrics', 'error');
+    }
+  } finally {
+    liveDataFetchController = null;
   }
 }
 
@@ -446,13 +474,15 @@ async function loadProgressData() {
 // Load Waco streets data and update the Waco streets layer
 async function loadWacoStreets() {
   try {
-    const data = await fetchGeoJSON('/static/Waco-Streets.geojson');
+    const wacoBoundary = document.getElementById('wacoBoundarySelect').value;
+    const streetsFilter = document.getElementById('streets-select').value;
+    const data = await fetchGeoJSON(`/waco_streets?wacoBoundary=${wacoBoundary}&filter=${streetsFilter}`);
     if (wacoStreetsLayer && map) {
       map.removeLayer(wacoStreetsLayer);
     }
     wacoStreetsLayer = L.geoJSON(data, {
       style: {
-        color: '#808080', // Light gray color
+        color: '#808080',
         weight: 1,
         opacity: 0.7
       },
@@ -753,20 +783,35 @@ function enableFilterControls() {
 // Set up event listeners for all controls
 function setupEventListeners() {
   // Filter Controls
-  document.getElementById('startDate').addEventListener('change', displayHistoricalData);
-  document.getElementById('endDate').addEventListener('change', displayHistoricalData);
-  document.getElementById('wacoBoundarySelect').addEventListener('change', displayHistoricalData);
-  document.getElementById('filterWaco').addEventListener('change', displayHistoricalData);
-  document.getElementById('applyFilterBtn').addEventListener('click', displayHistoricalData);
-  document.querySelectorAll('#time-filters button').forEach(button => {
-    button.addEventListener('click', () => filterRoutesBy(button.dataset.period));
-  });
+  const startDateEl = document.getElementById('startDate');
+  const endDateEl = document.getElementById('endDate');
+  const wacoBoundarySelectEl = document.getElementById('wacoBoundarySelect');
+  const filterWacoEl = document.getElementById('filterWaco');
+  const applyFilterBtnEl = document.getElementById('applyFilterBtn');
+
+  if (startDateEl) startDateEl.addEventListener('change', displayHistoricalData);
+  if (endDateEl) endDateEl.addEventListener('change', displayHistoricalData);
+  if (wacoBoundarySelectEl) wacoBoundarySelectEl.addEventListener('change', displayHistoricalData);
+  if (filterWacoEl) filterWacoEl.addEventListener('change', displayHistoricalData);
+  if (applyFilterBtnEl) applyFilterBtnEl.addEventListener('click', displayHistoricalData);
+
+  const timeFiltersEl = document.getElementById('time-filters');
+  if (timeFiltersEl) {
+    timeFiltersEl.querySelectorAll('button').forEach(button => {
+      button.addEventListener('click', () => filterRoutesBy(button.dataset.filter));
+    });
+  }
 
   // Layer Control Checkboxes
-  document.getElementById('historicalDataCheckbox').addEventListener('change', updateHistoricalDataLayerVisibility);
-  document.getElementById('wacoStreetsCheckbox').addEventListener('change', updateWacoStreetsLayerVisibility);
-  document.getElementById('wacoLimitsCheckbox').addEventListener('change', updateWacoLimitsLayerVisibility);
-  document.getElementById('progressLayerCheckbox').addEventListener('change', updateProgressLayerVisibility);
+  const historicalDataCheckboxEl = document.getElementById('historicalDataCheckbox');
+  const wacoStreetsCheckboxEl = document.getElementById('wacoStreetsCheckbox');
+  const wacoLimitsCheckboxEl = document.getElementById('wacoLimitsCheckbox');
+  const progressLayerCheckboxEl = document.getElementById('progressLayerCheckbox');
+
+  if (historicalDataCheckboxEl) historicalDataCheckboxEl.addEventListener('change', updateHistoricalDataLayerVisibility);
+  if (wacoStreetsCheckboxEl) wacoStreetsCheckboxEl.addEventListener('change', updateWacoStreetsLayerVisibility);
+  if (wacoLimitsCheckboxEl) wacoLimitsCheckboxEl.addEventListener('change', updateWacoLimitsLayerVisibility);
+  if (progressLayerCheckboxEl) progressLayerCheckboxEl.addEventListener('change', updateProgressLayerVisibility);
 
   // Data Update Button
   const updateDataBtn = document.getElementById('updateDataBtn');
@@ -815,7 +860,7 @@ function setupEventListeners() {
 
   const playbackSpeedInput = document.getElementById('playbackSpeed');
   if (playbackSpeedInput) {
-    playbackSpeedInput.addEventListener('input', adjustPlaybackSpeed);
+    playbackSpeedInput.addEventListener('input', adjustPlaybackSpeed   );
   }
 
   // Search Controls
@@ -928,11 +973,8 @@ function setupEventListeners() {
   // Streets Filter Select
   const streetsSelect = document.getElementById('streets-select');
   if (streetsSelect) {
-    streetsSelect.addEventListener('change', (e) => {
-      const wacoStreetsFilter = e.target.value;
-      if (wacoStreetsLayer) {
-        loadWacoStreets();
-      }
+    streetsSelect.addEventListener('change', () => {
+      loadWacoStreets();
     });
   }
 
@@ -944,6 +986,8 @@ function setupEventListeners() {
     });
   }
 }
+
+// Utility Functions
 
 // Debounce function for search suggestions
 function debounce(func, wait) {
@@ -998,8 +1042,8 @@ function animateElement(element, animationClass) {
 }
 
 // Fetch JSON data from a given URL
-async function fetchJSON(url) {
-  const response = await fetch(url);
+async function fetchJSON(url, options = {}) {
+  const response = await fetch(url, options);
   if (!response.ok) {
     throw new Error(`HTTP error! status: ${response.status}`);
   }
@@ -1039,7 +1083,8 @@ function showFeedback(message, type = 'info', duration = FEEDBACK_DURATION) {
 function handleBackgroundTask(taskFunction, feedbackMessage) {
   return async function(...args) {
     if (isProcessing) {
-      showFeedback('A task is already in progress. Please wait.', 'warning');
+      processingQueue.push(() => handleBackgroundTask(taskFunction, feedbackMessage)(...args));
+      showFeedback('Task queued. Please wait for the current task to finish.', 'info');
       return;
     }
     isProcessing = true;
@@ -1090,7 +1135,94 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Initialize the application when the DOM is fully loaded
-document.addEventListener('DOMContentLoaded', () => {
-  setupEventListeners();
-});
+// Helper functions for date manipulation
+function today() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+function yesterday() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+}
+
+function daysAgoDaysAgo(daysAgo) {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysAgo);
+}
+
+function formatDate(date) {
+  return date.toISOString().slice(0, 10);
+}
+
+// Search Controls
+const searchInput = document.getElementById('searchInput');
+const searchBtn = document.getElementById('searchBtn');
+if (searchBtn && searchInput) {
+  searchBtn.addEventListener('click', handleBackgroundTask(async () => {
+    const query = searchInput.value;
+    if (!query) {
+      showFeedback('Please enter a location to search for.', 'warning');
+      return;
+    }
+
+    try {
+      const data = await fetchJSON(`/search_location?query=${query}`);
+      if (data.error) {
+        throw new Error(data.error);
+      } else {
+        const { latitude, longitude, address } = data;
+        map.setView([latitude, longitude], 13);
+        removeLayer(searchMarker);
+        searchMarker = createAnimatedMarker([latitude, longitude], { icon: RED_MARKER_ICON })
+          .addTo(map)
+          .bindPopup(`<b>${address}</b>`)
+          .openPopup();
+
+        showFeedback(`Found location: ${address}`, 'success');
+
+        setTimeout(() => removeLayer(searchMarker), 10000);
+      }
+    } catch (error) {
+      throw new Error('Error searching for location: ' + error.message);
+    }
+  }, 'Searching for location...'));
+
+  searchInput.addEventListener('input', debounce(async () => {
+    const query = searchInput.value;
+    const suggestionsContainer = document.getElementById('searchSuggestions');
+    suggestionsContainer.innerHTML = '';
+
+    if (query.length < 3) {
+      return;
+    }
+
+    try {
+      const suggestions = await fetchJSON(`/search_suggestions?query=${query}`);
+      if (suggestions.length > 0) {
+        suggestions.forEach(suggestion => {
+          const suggestionElement = document.createElement('div');
+          suggestionElement.textContent = suggestion.address;
+          suggestionElement.classList.add('animate__animated', 'animate__fadeIn');
+          suggestionElement.addEventListener('click', () => {
+            searchInput.value = suggestion.address;
+            suggestionsContainer.innerHTML = '';
+          });
+          suggestionsContainer.appendChild(suggestionElement);
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching search suggestions:', error);
+    }
+  }, 300));
+
+  searchInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      document.getElementById('searchSuggestions').innerHTML = '';
+    }
+  });
+
+  searchBtn.addEventListener('click', () => {
+    document.getElementById('searchSuggestions').innerHTML = '';
+  });
+}
