@@ -132,10 +132,10 @@ class BouncieAPI:
         async def attempt_fetch():
             await self.client.get_access_token()
             headers = {"Authorization": f"Bearer {self.client.access_token}"}
-            
+
             start_time = format_date(get_start_of_day(start_date))
             end_time = format_date(get_end_of_day(end_date))
-            
+
             summary_url = f"https://www.bouncie.app/api/vehicles/{VEHICLE_ID}/triplegs/details/summary?bands=true&defaultColor=%2355AEE9&overspeedColor=%23CC0000&startDate={start_time}&endDate={end_time}"
 
             async with self.client._session.get(summary_url, headers=headers) as response:
@@ -225,7 +225,8 @@ class BouncieAPI:
                     logging.debug(f"Path data: {path}")
 
                     path_array = np.array(path)
-                    if path_array.shape[1] >= 6:
+                    # Check if the path has at least latitude, longitude and timestamp
+                    if path_array.shape[1] >= 5: 
                         coordinates.extend(path_array[:, [1, 0]])  # lon, lat
                         timestamp = path_array[-1, 4]  # last timestamp
                     else:
