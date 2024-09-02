@@ -206,7 +206,7 @@ function updateProgressLayerVisibility() {
 // Initialize the Waco streets layer
 async function initWacoStreetsLayer() {
   try {
-    wacoStreetsLayer = L.geoJSON(await fetchGeoJSON('/static/waco-streets.geojson'), {
+    wacoStreetsLayer = L.geoJSON(await fetchGeoJSON('/static/Waco-Streets.geojson'), {
       style: {
         color: '#808080',
         weight: 1,
@@ -441,7 +441,7 @@ async function loadProgressData() {
 // Load Waco streets data and update the Waco streets layer
 async function loadWacoStreets() {
   try {
-    const data = await fetchGeoJSON('/static/waco-streets.geojson');
+    const data = await fetchGeoJSON('/static/Waco-Streets.geojson');
     if (wacoStreetsLayer && map) {
       map.removeLayer(wacoStreetsLayer);
     }
