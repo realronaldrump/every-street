@@ -1,14 +1,17 @@
 import asyncio
 import logging
+import os
 from datetime import datetime, timedelta, timezone
+
+import aiohttp
 import numpy as np
-from geopy.distance import geodesic
 from bounciepy import AsyncRESTAPIClient
 from bounciepy.exceptions import BouncieException
+from geopy.distance import geodesic
 from geopy.geocoders import Nominatim
-import os
-import aiohttp
-from date_utils import parse_date, format_date, get_start_of_day, get_end_of_day
+
+from date_utils import (format_date, get_end_of_day, get_start_of_day,
+                        parse_date)
 
 # Use os.getenv directly for environment variables
 CLIENT_ID = "python-test"
@@ -22,10 +25,12 @@ ENABLE_GEOCODING = os.getenv("ENABLE_GEOCODING", "False").lower() == "true"
 
 logger = logging.getLogger(__name__)
 
+
 class BouncieAPI:
     def __init__(self):
         if not all([CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, AUTH_CODE, VEHICLE_ID, DEVICE_IMEI]):
-            raise ValueError("Missing required environment variables for BouncieAPI")
+            raise ValueError(
+                "Missing required environment variables for BouncieAPI")
 
         self.client = AsyncRESTAPIClient(
             client_id=CLIENT_ID,
@@ -34,7 +39,8 @@ class BouncieAPI:
             auth_code=AUTH_CODE,
         )
         self.geolocator = Nominatim(user_agent="bouncie_viewer", timeout=10)
-        self.live_trip_data = {"last_updated": datetime.now(timezone.utc), "data": []}
+        self.live_trip_data = {
+            "last_updated": datetime.now(timezone.utc), "data": []}
 
     async def get_access_token(self):
         try:
@@ -62,7 +68,8 @@ class BouncieAPI:
             if response.status == 200:
                 return await response.json()
             else:
-                logger.error(f"Error: Failed to fetch data for {date}. HTTP Status code: {response.status}")
+                logger.error(
+                    f"Error: Failed to fetch data for {date}. HTTP Status code: {response.status}")
                 return None
 
     async def fetch_trip_data(self, start_date, end_date):
@@ -81,7 +88,8 @@ class BouncieAPI:
                     all_trips.extend(trips_data)
 
                 current_date += timedelta(days=1)
-                await asyncio.sleep(0.1)  # Small delay to prevent overwhelming the API
+                # Small delay to prevent overwhelming the API
+                await asyncio.sleep(0.1)
 
         return all_trips
 
@@ -90,7 +98,8 @@ class BouncieAPI:
             await self.get_access_token()
             vehicle_data = await self.client.get_vehicle_by_imei(imei=DEVICE_IMEI)
             if not vehicle_data or "stats" not in vehicle_data:
-                logger.error("No vehicle data or stats found in Bouncie response")
+                logger.error(
+                    "No vehicle data or stats found in Bouncie response")
                 return None
 
             stats = vehicle_data["stats"]
@@ -122,7 +131,8 @@ class BouncieAPI:
             )
 
             if self.live_trip_data["data"] and self.live_trip_data["data"][-1]["timestamp"] == timestamp_unix:
-                logger.info("Duplicate timestamp found, not adding new data point.")
+                logger.info(
+                    "Duplicate timestamp found, not adding new data point.")
                 return None
 
             new_data_point = {
@@ -137,7 +147,8 @@ class BouncieAPI:
             self.live_trip_data["data"].append(new_data_point)
             self.live_trip_data["last_updated"] = datetime.now(timezone.utc)
 
-            logger.info(f"Latest Bouncie data retrieved: {location.get('lat')}, {location.get('lon')} at {timestamp_unix}")
+            logger.info(
+                f"Latest Bouncie data retrieved: {location.get('lat')}, {location.get('lon')} at {timestamp_unix}")
             return new_data_point
 
         except Exception as e:
@@ -158,13 +169,15 @@ class BouncieAPI:
                 else:
                     return "N/A"
             except Exception as e:
-                logger.error(f"Reverse geocoding attempt {attempt + 1} failed with error: {e}")
+                logger.error(
+                    f"Reverse geocoding attempt {attempt + 1} failed with error: {e}")
                 if attempt < retries - 1:
                     await asyncio.sleep(1)
         return "N/A"
 
     async def get_trip_metrics(self):
-        time_since_update = datetime.now(timezone.utc) - self.live_trip_data["last_updated"]
+        time_since_update = datetime.now(
+            timezone.utc) - self.live_trip_data["last_updated"]
         if time_since_update.total_seconds() > 45:
             self.live_trip_data["data"] = []
 
@@ -228,7 +241,8 @@ class BouncieAPI:
             for band in trip.get("bands", []):
                 for path in band.get("paths", []):
                     path_array = np.array(path)
-                    if path_array.shape[1] >= 5:  # Check for lat, lon, timestamp at least
+                    # Check for lat, lon, timestamp at least
+                    if path_array.shape[1] >= 5:
                         coordinates.extend(path_array[:, [1, 0]])  # lon, lat
                         timestamp = path_array[-1, 4]  # last timestamp
                     else:
@@ -237,12 +251,14 @@ class BouncieAPI:
             if len(coordinates) > 1 and timestamp is not None:
                 feature = {
                     "type": "Feature",
-                    "geometry": {"type": "LineString", "coordinates": coordinates},  # Removed .tolist()
+                    # Removed .tolist()
+                    "geometry": {"type": "LineString", "coordinates": coordinates},
                     "properties": {"timestamp": int(timestamp)},
                 }
                 features.append(feature)
             else:
-                logger.warning(f"Skipping trip with insufficient data: coordinates={len(coordinates)}, timestamp={timestamp}")
+                logger.warning(
+                    f"Skipping trip with insufficient data: coordinates={len(coordinates)}, timestamp={timestamp}")
 
         logger.info(f"Created {len(features)} GeoJSON features from trip data")
-        return features 
+        return features
