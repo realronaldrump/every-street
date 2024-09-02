@@ -92,23 +92,25 @@ class GeoJSONHandler:
                 monthly_files = [f for f in os.listdir('static') if f.startswith('historical_data_') and f.endswith('.geojson')]
 
                 total_features = 0
-                with tqdm(total=len(monthly_files), desc="Loading and processing historical data", unit="file") as pbar:
-                    for file in monthly_files:
-                        async with aiofiles.open(f"static/{file}", "r") as f:
-                            data = json.loads(await f.read())
-                            month_features = data.get("features", [])
-                            month_year = file.split('_')[2].split('.')[0]
-                            self.historical_geojson_features.extend(month_features)
-                            self.monthly_data[month_year] = month_features
-                            total_features += len(month_features)
+                if monthly_files:
+                    with tqdm(total=len(monthly_files), desc="Loading and processing historical data", unit="file") as pbar:
+                        for file in monthly_files:
+                            async with aiofiles.open(f"static/{file}", "r") as f:
+                                data = json.loads(await f.read())
+                                month_features = data.get("features", [])
+                                month_year = file.split('_')[2].split('.')[0]
+                                self.historical_geojson_features.extend(month_features)
+                                self.monthly_data[month_year] = month_features
+                                total_features += len(month_features)
 
-                        pbar.update(1)
-                        pbar.set_postfix({"Total Features": total_features, "Current Month": month_year})
+                            pbar.update(1)
+                            pbar.set_postfix({"Total Features": total_features, "Current Month": month_year})
 
-                logger.info(f"Loaded {total_features} features from {len(monthly_files)} monthly files")
+                    logger.info(f"Loaded {total_features} features from {len(monthly_files)} monthly files")
 
                 if not self.historical_geojson_features:
                     logger.warning("No historical data found in monthly files.")
+                    logger.info("Fetching historical data from BouncieAPI.")
                     await self.update_historical_data(fetch_all=True)
 
                 await self.update_all_progress()
@@ -123,7 +125,8 @@ class GeoJSONHandler:
                 logger.info("Starting update_historical_data")
 
                 if fetch_all:
-                    start_date = datetime(2020, 8, 1, tzinfo=timezone.utc)  # Adjust this to your earliest known data date
+                    start_date = datetime(2020, 8, 1, tzinfo=timezone.utc) 
+                    logger.info(f"Fetching all data starting from {start_date}")
                 elif self.historical_geojson_features:
                     latest_timestamp = max(
                         feature["properties"]["timestamp"]
@@ -131,12 +134,16 @@ class GeoJSONHandler:
                         if feature["properties"].get("timestamp") is not None
                     )
                     start_date = datetime.fromtimestamp(latest_timestamp, tz=timezone.utc) + timedelta(days=1)
+                    logger.info(f"Fetching data starting from the latest timestamp: {start_date}")
                 else:
                     start_date = await self.find_first_data_date()
+                    logger.info(f"No historical features loaded, fetching data starting from first data date: {start_date}")
 
                 end_date = datetime.now(tz=timezone.utc)
-                
+                logger.info(f"Fetching data until {end_date}")
+
                 all_trips = await self.bouncie_api.fetch_trip_data(start_date, end_date)
+                logger.info(f"Fetched {len(all_trips)} trips from BouncieAPI")
 
                 if all_trips:
                     new_features = await self._process_trips_in_batches(all_trips)
@@ -145,6 +152,7 @@ class GeoJSONHandler:
                     if new_features:
                         await self._update_monthly_files(new_features)
                         self.historical_geojson_features.extend(new_features)
+                        logger.info(f"Added {len(new_features)} new features to historical_geojson_features")
 
                     logger.info("Calling update_all_progress")
                     await self.update_all_progress()
@@ -156,7 +164,7 @@ class GeoJSONHandler:
                 raise
 
     async def find_first_data_date(self):
-        start_date = datetime(2020, 8, 1, tzinfo=timezone.utc)  # Adjust this to your earliest possible data date
+        start_date = datetime(2024, 6, 1, tzinfo=timezone.utc)  # Adjust this to your earliest possible data date
         end_date = datetime.now(tz=timezone.utc)
         step = timedelta(days=30)
 
@@ -202,12 +210,22 @@ class GeoJSONHandler:
 
     async def _update_monthly_files(self, new_features):
         for feature in new_features:
+            # Ensure that the coordinates are JSON serializable
+            coordinates = feature["geometry"]["coordinates"]
+            if isinstance(coordinates, np.ndarray):
+                feature["geometry"]["coordinates"] = coordinates.tolist()
+            else:
+                # In case it's a nested list with ndarrays
+                feature["geometry"]["coordinates"] = self._convert_ndarray_to_list(coordinates)
+
+            # Add the feature to the appropriate month in the monthly data
             timestamp = feature["properties"]["timestamp"]
             date = datetime.fromtimestamp(timestamp, tz=timezone.utc)
             month_year = date.strftime("%Y-%m")
 
             self.monthly_data[month_year].append(feature)
 
+        # Write the updated features to the corresponding monthly files
         for month_year, features in self.monthly_data.items():
             filename = f"static/historical_data_{month_year}.geojson"
             async with aiofiles.open(filename, "w") as f:
@@ -219,6 +237,15 @@ class GeoJSONHandler:
 
         logger.info(f"Updated monthly files with {len(new_features)} new features")
 
+    # Helper function to recursively convert any ndarray in a nested list structure
+    def _convert_ndarray_to_list(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, list):
+            return [self._convert_ndarray_to_list(item) for item in obj]
+        else:
+            return obj
+        
     async def filter_geojson_features(self, start_date, end_date, filter_waco, waco_limits, bounds=None):
         start_datetime = get_start_of_day(parse_date(start_date)).replace(tzinfo=timezone.utc)
         end_datetime = get_end_of_day(parse_date(end_date)).replace(tzinfo=timezone.utc)
