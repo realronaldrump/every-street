@@ -153,13 +153,19 @@ function initMap() {
 // Initialize the Waco city limits layer
 async function initWacoLimitsLayer() {
   try {
-    const wacoBoundary = document.getElementById('wacoBoundarySelect').value; // Get selected boundary
+    const wacoBoundary = document.getElementById('wacoBoundarySelect').value;
+
+    // Remove existing layer if it exists
+    if (wacoLimitsLayer && map.hasLayer(wacoLimitsLayer)) {
+      map.removeLayer(wacoLimitsLayer);
+    }
+
     wacoLimitsLayer = L.geoJSON(await fetchGeoJSON(`/static/${wacoBoundary}.geojson`), {
       style: {
         color: 'red',
         weight: 2,
         fillColor: 'orange',
-        fillOpacity: 0.03
+        fillOpacity: 0.03 // Ensure the correct opacity
       },
       pane: 'wacoLimitsPane'
     });
@@ -173,14 +179,22 @@ async function initWacoLimitsLayer() {
 // Update the visibility of the Waco limits layer based on checkbox state
 function updateWacoLimitsLayerVisibility() {
   const showWacoLimits = document.getElementById('wacoLimitsCheckbox').checked;
+
   if (showWacoLimits && map && !map.hasLayer(wacoLimitsLayer)) {
-    initWacoLimitsLayer().then(() => { // Initialize the layer if it hasn't been initialized yet
+    // Only initialize the layer if it doesn't exist yet
+    if (!wacoLimitsLayer) {
+      initWacoLimitsLayer().then(() => {
+        wacoLimitsLayer.addTo(map);
+      });
+    } else {
+      // If the layer already exists, just add it to the map
       wacoLimitsLayer.addTo(map);
-    });
+    }
   } else if (!showWacoLimits && map && map.hasLayer(wacoLimitsLayer)) {
     map.removeLayer(wacoLimitsLayer);
   }
 }
+
 // Initialize the progress layer
 async function initProgressLayer() {
   try {
@@ -747,10 +761,6 @@ async function displayHistoricalData() {
     const data = await fetchHistoricalData();
     updateMapWithHistoricalData(data);
 
-    // Reload Waco limits layer with the new boundary
-    await initWacoLimitsLayer();
-    updateWacoLimitsLayerVisibility();
-
     // Reload progress layer with the new boundary
     await loadProgressData();
 
@@ -795,9 +805,13 @@ function setupEventListeners() {
 
   if (startDateEl) startDateEl.addEventListener('change', displayHistoricalData);
   if (endDateEl) endDateEl.addEventListener('change', displayHistoricalData);
-  if (wacoBoundarySelectEl) wacoBoundarySelectEl.addEventListener('change', displayHistoricalData);
   if (filterWacoEl) filterWacoEl.addEventListener('change', displayHistoricalData);
   if (applyFilterBtnEl) applyFilterBtnEl.addEventListener('click', displayHistoricalData);
+
+  // Waco Boundary Select Event Listener
+  if (wacoBoundarySelectEl) {
+    wacoBoundarySelectEl.addEventListener('change', initWacoLimitsLayer); // Call initWacoLimitsLayer directly
+  }
 
   const timeFiltersEl = document.getElementById('time-filters');
   if (timeFiltersEl) {
@@ -938,6 +952,15 @@ function setupEventListeners() {
       document.getElementById('searchSuggestions').innerHTML = '';
     });
   }
+    // Toggle Map Controls Button
+    const toggleMapControlsBtn = document.getElementById('toggleMapControlsBtn');
+    const mapControls = document.getElementById('map-controls');
+  
+    if (toggleMapControlsBtn && mapControls) {
+      toggleMapControlsBtn.addEventListener('click', () => {
+        mapControls.classList.toggle('show'); // Toggle the 'show' class to control visibility
+      });
+    }
 
   // Export to GPX Button
   const exportToGPXBtn = document.getElementById('exportToGPXBtn');

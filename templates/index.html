@@ -19,6 +19,32 @@
         <div id="feedback-container"></div>
 
         <main role="main">
+          <section id="map-container" class="section">
+            <section id="map" class="section" aria-label="Map of Davis's Routes"></section>
+            <section id="map-controls-wrapper" class="section">
+              <button id="toggleMapControlsBtn">Map Controls</button>
+              <div id="map-controls" class="section">
+                <h3>Map Layers</h3>
+                <div class="map-control-item">
+                    <input type="checkbox" id="historicalDataCheckbox" checked>
+                    <label for="historicalDataCheckbox">Historical Data</label>
+                </div>
+                <div class="map-control-item">
+                    <input type="checkbox" id="wacoStreetsCheckbox" checked>
+                    <label for="wacoStreetsCheckbox">Waco Streets</label>
+                </div>
+                <div class="map-control-item">
+                    <input type="checkbox" id="wacoLimitsCheckbox">
+                    <label for="wacoLimitsCheckbox">Waco Boundary</label>
+                </div>
+                <div class="map-control-item">
+                    <input type="checkbox" id="progressLayerCheckbox" checked>
+                    <label for="progressLayerCheckbox">Progress Layer</label>
+                </div>
+              </div>
+            </section>
+          </section>
+
             <section id="filters" class="section">
                 <div id="time-filters" class="filter-group">
                     <button data-filter="today">Today</button>
@@ -45,10 +71,10 @@
                         </div>
                         <div class="filter-item">
                             <select id="wacoBoundarySelect">
-                                <option value="city_limits" selected>Simplified City Limits</option> 
+                                <option value="city_limits" selected>Simplified City Limits</option>
                                 <option value="less_goofy">Precise but Less Goofy Lookin' Boundary</option>
-                                <option value="precise">Precise (Goofy Lookin') Boundary</option>
-                              </select>
+                                <option value="goofy">Precise (Goofy Lookin') Boundary</option>
+                            </select>
                         </div>
                     </div>
                     <div class="filter-row">
@@ -69,8 +95,6 @@
                     </div>
                 </div>
             </section>
-
-            <section id="map" class="section" aria-label="Map of Davis's Routes"></section>
 
             <section id="playback-controls" class="section">
                 <button id="playPauseBtn">Play</button>
@@ -160,33 +184,12 @@
                     </div>
                 </div>
             </section>
-
-            <section id="map-controls" class="section">
-                <h3>Map Layers</h3>
-                <div class="map-control-item">
-                    <input type="checkbox" id="historicalDataCheckbox" checked>
-                    <label for="historicalDataCheckbox">Historical Data</label>
-                </div>
-                <div class="map-control-item">
-                    <input type="checkbox" id="wacoStreetsCheckbox" checked>
-                    <label for="wacoStreetsCheckbox">Waco Streets</label>
-                </div>
-                <div class="map-control-item">
-                    <input type="checkbox" id="wacoLimitsCheckbox"> 
-                    <label for="wacoLimitsCheckbox">Waco Boundary</label>
-                  </div>
-                <div class="map-control-item">
-                    <input type="checkbox" id="progressLayerCheckbox" checked>
-                    <label for="progressLayerCheckbox">Progress Layer</label>
-                </div>
-            </section>
         </main>
 
         <footer>
             <div id="audio-player">
                 <audio controls>
                     <source src="/static/roadsofwaco.mp3" type="audio/mpeg">
-                    <source src="/static/hypesong.mp3" type="audio/mpeg">
                     Your browser does not support the audio element.
                 </audio>
                 <button id="skipButton">Skip</button>
