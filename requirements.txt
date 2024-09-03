@@ -17,4 +17,5 @@ aiofiles
 redis
 tenacity
 pydantic
+httpx
 pydantic-settings

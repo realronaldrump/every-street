@@ -19,31 +19,31 @@
         <div id="feedback-container"></div>
 
         <main role="main">
-          <section id="map-container" class="section">
-            <section id="map" class="section" aria-label="Map of Davis's Routes"></section>
-            <section id="map-controls-wrapper" class="section">
-              <button id="toggleMapControlsBtn">Map Controls</button>
-              <div id="map-controls" class="section">
-                <h3>Map Layers</h3>
-                <div class="map-control-item">
-                    <input type="checkbox" id="historicalDataCheckbox" checked>
-                    <label for="historicalDataCheckbox">Historical Data</label>
-                </div>
-                <div class="map-control-item">
-                    <input type="checkbox" id="wacoStreetsCheckbox" checked>
-                    <label for="wacoStreetsCheckbox">Waco Streets</label>
-                </div>
-                <div class="map-control-item">
-                    <input type="checkbox" id="wacoLimitsCheckbox">
-                    <label for="wacoLimitsCheckbox">Waco Boundary</label>
-                </div>
-                <div class="map-control-item">
-                    <input type="checkbox" id="progressLayerCheckbox" checked>
-                    <label for="progressLayerCheckbox">Progress Layer</label>
-                </div>
-              </div>
+            <section id="map-container" class="section">
+                <section id="map" class="section" aria-label="Map of Davis's Routes"></section>
+                <section id="map-controls-wrapper" class="section">
+                    <button id="toggleMapControlsBtn">Map Controls</button>
+                    <div id="map-controls" class="section">
+                        <h3>Map Layers</h3>
+                        <div class="map-control-item">
+                            <input type="checkbox" id="historicalDataCheckbox" checked>
+                            <label for="historicalDataCheckbox">Historical Data</label>
+                        </div>
+                        <div class="map-control-item">
+                            <input type="checkbox" id="wacoStreetsCheckbox" checked>
+                            <label for="wacoStreetsCheckbox">Waco Streets</label>
+                        </div>
+                        <div class="map-control-item">
+                            <input type="checkbox" id="wacoLimitsCheckbox">
+                            <label for="wacoLimitsCheckbox">Waco Boundary</label>
+                        </div>
+                        <div class="map-control-item">
+                            <input type="checkbox" id="progressLayerCheckbox" checked>
+                            <label for="progressLayerCheckbox">Progress Layer</label>
+                        </div>
+                    </div>
+                </section>
             </section>
-          </section>
 
             <section id="filters" class="section">
                 <div id="time-filters" class="filter-group">
@@ -188,8 +188,9 @@
 
         <footer>
             <div id="audio-player">
-                <audio controls>
+                <audio id="audioElement" controls>
                     <source src="/static/roadsofwaco.mp3" type="audio/mpeg">
+                    <source src="/static/hypesong.mp3" type="audio/mpeg">
                     Your browser does not support the audio element.
                 </audio>
                 <button id="skipButton">Skip</button>
@@ -209,5 +210,39 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/turf/6.5.0/turf.min.js"></script>
     <script src="/static/js/map.js"></script>
+    <script>
+        const audioElement = document.getElementById('audioElement');
+        const skipButton = document.getElementById('skipButton');
+
+        // Array of songs
+        const songs = [
+            '/static/roadsofwaco.mp3',
+            '/static/hypesong.mp3'
+        ];
+
+        let currentSongIndex = 0;
+
+        // Function to play the current song
+        function playCurrentSong() {
+            audioElement.src = songs[currentSongIndex];
+            audioElement.play();
+        }
+
+        skipButton.addEventListener('click', () => {
+            // Increment the song index
+            currentSongIndex = (currentSongIndex + 1) % songs.length;
+            // Set the new source and play the new song
+            playCurrentSong();
+        });
+
+        // Optional: Automatically play the next song when the current one ends
+        audioElement.addEventListener('ended', () => {
+            currentSongIndex = (currentSongIndex + 1) % songs.length;
+            playCurrentSong();
+        });
+
+        // Initial play
+        playCurrentSong();
+    </script>
 </body>
 </html>
