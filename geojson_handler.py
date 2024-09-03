@@ -98,8 +98,15 @@ class GeoJSONHandler:
                             async with aiofiles.open(f"static/{file}", "r") as f:
                                 data = json.loads(await f.read())
                                 month_features = data.get("features", [])
+
+                                # Only add features if their timestamp is not already in fetched_trip_timestamps
+                                for feature in month_features:
+                                    timestamp = feature["properties"]["timestamp"]
+                                    if timestamp not in self.fetched_trip_timestamps:
+                                        self.historical_geojson_features.append(feature)
+                                        self.fetched_trip_timestamps.add(timestamp)
+
                                 month_year = file.split('_')[2].split('.')[0]
-                                self.historical_geojson_features.extend(month_features)
                                 self.monthly_data[month_year] = month_features
                                 total_features += len(month_features)
 
@@ -108,10 +115,6 @@ class GeoJSONHandler:
 
                     logger.info(f"Loaded {total_features} features from {len(monthly_files)} monthly files")
 
-                if not self.historical_geojson_features:
-                    logger.warning("No historical data found in monthly files.")
-                    logger.info("Fetching historical data from BouncieAPI.")
-                    await self.update_historical_data(fetch_all=True)
 
                 await self.update_all_progress()
 
@@ -155,11 +158,21 @@ class GeoJSONHandler:
                                 logger.info(f"Created {len(new_features)} new features from trips on {current_date}")
 
                                 if new_features:
-                                    await self._update_monthly_files(new_features)
-                                    self.historical_geojson_features.extend(new_features)
-                                    logger.info(f"Added {len(new_features)} new features to historical_geojson_features")
+                                    # Filter new features based on timestamp
+                                    filtered_new_features = [
+                                        feature for feature in new_features
+                                        if feature["properties"]["timestamp"] not in self.fetched_trip_timestamps
+                                    ]
 
-                                    await self.update_all_progress()
+                                    if filtered_new_features:
+                                        await self._update_monthly_files(filtered_new_features)
+                                        self.historical_geojson_features.extend(filtered_new_features)
+                                        self.fetched_trip_timestamps.update(
+                                            feature["properties"]["timestamp"] for feature in filtered_new_features
+                                        )
+                                        logger.info(f"Added {len(filtered_new_features)} new features to historical_geojson_features")
+
+                                        await self.update_all_progress()
                             else:
                                 logger.info(f"No trips found for {current_date.strftime('%Y-%m-%d')}")
 
@@ -175,13 +188,13 @@ class GeoJSONHandler:
                 raise
 
     async def find_first_data_date(self):
-        start_date = datetime(2020, 8, 1, tzinfo=timezone.utc)  # Your specified start date
+        start_date = datetime(2020, 8, 1, tzinfo=timezone.utc) 
         end_date = datetime.now(tz=timezone.utc)
-        step = timedelta(days=1)  # Check day by day
+        step = timedelta(days=1)  
 
         with tqdm(total=(end_date - start_date).days, desc="Finding first data date", unit="day") as pbar:
             while start_date < end_date:
-                trips = await self.bouncie_api.fetch_trip_data(start_date, start_date)  # Fetch data for a single day
+                trips = await self.bouncie_api.fetch_trip_data(start_date, start_date)  
                 
                 if trips:
                     logger.info(f"Found first data date: {start_date}")
@@ -198,7 +211,7 @@ class GeoJSONHandler:
             batch = trips[i:i+batch_size]
             batch_features = await asyncio.to_thread(self.bouncie_api.create_geojson_features_from_trips, batch)
             new_features.extend(batch_features)
-            await asyncio.sleep(0)  # Allow other tasks to run
+            await asyncio.sleep(0)
         return new_features
 
     def get_progress(self):

@@ -536,11 +536,28 @@ def create_app():
             async with app.historical_data_lock:
                 app.historical_data_loading = False
 
+    def create_empty_historical_data_file():
+        current_month_year = datetime.now(timezone.utc).strftime("%Y-%m")
+        filename = f"static/historical_data_{current_month_year}.geojson"
+
+        if not os.path.exists(filename):
+            logger.info(f"No historical data files found. Creating an empty one: {filename}")
+            empty_geojson = {
+                "type": "FeatureCollection",
+                "crs": {"type": "name", "properties": {"name": "EPSG:4326"}},
+                "features": []
+            }
+            with open(filename, "w") as f:
+                json.dump(empty_geojson, f, indent=4)
+
     # App Lifecycle Events
     @app.before_serving
     async def startup():
         logger.info("Starting application initialization...")
         try:
+            # Ensure an empty historical data file exists
+            create_empty_historical_data_file()
+
             logger.info("Initializing historical data...")
             await load_historical_data_background()
             logger.info("Historical data initialized")
