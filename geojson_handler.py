@@ -316,6 +316,14 @@ class GeoJSONHandler:
             if month_start <= end_datetime and month_end >= start_datetime:
                 month_features = gpd.GeoDataFrame.from_features(features)
 
+                # Check if 'timestamp' column exists before converting
+                if 'timestamp' in month_features.columns:
+                    month_features['timestamp'] = pd.to_datetime(month_features['timestamp'], unit='s', utc=True)
+                    mask = (month_features['timestamp'] >= start_datetime) & (month_features['timestamp'] <= end_datetime)
+                else:
+                    logger.warning(f"No 'timestamp' column found in data for {month_year}. Skipping filtering by date.")
+                    mask = pd.Series(True, index=month_features.index)  # Include all features if 'timestamp' is missing
+
                 # Convert timestamp to datetime
                 month_features['timestamp'] = pd.to_datetime(month_features['timestamp'], unit='s', utc=True)
 

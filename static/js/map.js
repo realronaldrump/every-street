@@ -6,7 +6,7 @@ const MCLENNAN_COUNTY_BOUNDS = L.latLngBounds(
 const DEFAULT_WACO_BOUNDARY = 'less_goofy';
 const DEFAULT_WACO_STREETS_OPACITY = 0.7;
 const DEFAULT_WACO_STREETS_FILTER = 'all';
-const ALL_TIME_START_DATE = new Date(2020, 0, 1); // Assuming data starts from 2020
+const ALL_TIME_START_DATE = new Date(2020, 0, 1);
 const MAX_HISTORICAL_DATA_LOAD_ATTEMPTS = 3;
 const DATA_POLLING_INTERVAL = 1000; // Poll for live data every second
 const PROGRESS_UPDATE_INTERVAL = 60000; // Update progress every minute
@@ -64,7 +64,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize layers and controls
     await Promise.all([
-      initWacoLimitsLayer(),
       initProgressLayer(),
       initWacoStreetsLayer(),
       loadHistoricalData().catch(error => console.error('Historical data loading failed:', error)),
@@ -154,7 +153,8 @@ function initMap() {
 // Initialize the Waco city limits layer
 async function initWacoLimitsLayer() {
   try {
-    wacoLimitsLayer = L.geoJSON(await fetchGeoJSON(`/static/${DEFAULT_WACO_BOUNDARY}.geojson`), {
+    const wacoBoundary = document.getElementById('wacoBoundarySelect').value; // Get selected boundary
+    wacoLimitsLayer = L.geoJSON(await fetchGeoJSON(`/static/${wacoBoundary}.geojson`), {
       style: {
         color: 'red',
         weight: 2,
@@ -174,12 +174,13 @@ async function initWacoLimitsLayer() {
 function updateWacoLimitsLayerVisibility() {
   const showWacoLimits = document.getElementById('wacoLimitsCheckbox').checked;
   if (showWacoLimits && map && !map.hasLayer(wacoLimitsLayer)) {
-    wacoLimitsLayer.addTo(map);
+    initWacoLimitsLayer().then(() => { // Initialize the layer if it hasn't been initialized yet
+      wacoLimitsLayer.addTo(map);
+    });
   } else if (!showWacoLimits && map && map.hasLayer(wacoLimitsLayer)) {
     map.removeLayer(wacoLimitsLayer);
   }
 }
-
 // Initialize the progress layer
 async function initProgressLayer() {
   try {
@@ -745,6 +746,17 @@ async function displayHistoricalData() {
   try {
     const data = await fetchHistoricalData();
     updateMapWithHistoricalData(data);
+
+    // Reload Waco limits layer with the new boundary
+    await initWacoLimitsLayer();
+    updateWacoLimitsLayerVisibility();
+
+    // Reload progress layer with the new boundary
+    await loadProgressData();
+
+    // Reload Waco streets layer with the new boundary and filter
+    await loadWacoStreets();
+
   } catch (error) {
     console.error('Error displaying historical data:', error);
     showFeedback(`Error loading historical data: ${error.message}. Please try again.`, 'error');
