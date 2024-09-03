@@ -16,7 +16,7 @@ class WacoStreetsAnalyzer:
         self.cache_file = 'waco_streets_cache.pkl'
         self.streets_gdf = None
         self.traveled_streets = set()
-        self.snap_distance = 0.00001
+        self.snap_distance = 0.0000001
         self.sindex = None
         self.load_data()
 
